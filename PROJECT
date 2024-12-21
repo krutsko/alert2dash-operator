@@ -10,4 +10,14 @@ plugins:
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: alert2dash-operator
 repo: github.com/krutsko/alert2dash-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: krutsko.com
+  group: monitoring
+  kind: AlertDashboard
+  path: github.com/krutsko/alert2dash-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

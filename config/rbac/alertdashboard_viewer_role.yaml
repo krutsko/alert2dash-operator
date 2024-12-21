@@ -1,32 +1,23 @@
----
+# permissions for end users to view alertdashboards.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: alert2dash-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: alertdashboard-viewer-role
 rules:
 - apiGroups:
   - monitoring.krutsko.com
   resources:
   - alertdashboards
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - monitoring.krutsko.com
-  resources:
-  - alertdashboards/finalizers
-  verbs:
-  - update
 - apiGroups:
   - monitoring.krutsko.com
   resources:
   - alertdashboards/status
   verbs:
   - get
-  - patch
-  - update

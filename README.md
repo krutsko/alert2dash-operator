@@ -1,3 +1,22 @@
+### Running on the cluster
+1. Install Instances of Custom Resources:
+
+CRDs:
+```sh
+kubectl apply -f config/crd/bases
+```
+
+All:
+```sh
+kubectl apply -f config/samples/
+```
+
+AlertDashboard:
+```sh
+kubectl apply -f config/samples/monitoring_v1alpha1_alertdashboard.yaml
+```
+
+
 # alert2dash-operator
 // TODO(user): Add simple overview of use/purpose
 
