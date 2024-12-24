@@ -1,29 +1,26 @@
 apiVersion: monitoring.krutsko.com/v1alpha1
 kind: AlertDashboard
 metadata:
-  name: backend-services
-  namespace: monitoring
-  labels:
-    grafana_dashboard: "1"
+  name: app-alerts
 spec:
   ruleSelector:
     matchLabels:
-      tier: backend
-    matchExpressions:
-      - key: team
-        operator: Exists
+      generate-dashboard: "true"
   dashboardConfig:
-    title: "Backend Services Alerts Overview"
-    folder: "Teams"
+    title: "Application Alerts"
+    folder: "Monitoring"
     configMapNamePrefix: "grafana-dashboard"
     panels:
       alertsOverview: true
       timeSeriesGraphs: true
       alertHistory: true
     variables:
-      - name: team
+      - name: namespace
         type: query
-        query: "label_values(team)"
-      - name: service
-        type: query
-        query: "label_values(app)"
+        query: "label_values(namespace)"
+      - name: severity
+        type: custom
+        values:
+          - critical
+          - warning
+          - info
