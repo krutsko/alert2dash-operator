@@ -1,3 +1,4 @@
+// dashboard.jsonnet
 local dashboard = {
     new(title, rules, config):: {
         local cfg = if config == null then {} else config,
@@ -14,9 +15,11 @@ local dashboard = {
             to: 'now'
         },
         refresh: '1m',
+        _panelY:: 0,  // Track current Y position
 
         // Add overview panel if enabled
         addAlertsOverview(rules):: if panels.alertsOverview then self + {
+            _panelY:: 8,
             panels+: [{
                 title: 'Alerts Overview',
                 type: 'table',
@@ -45,6 +48,8 @@ local dashboard = {
         // Add time series panels if enabled
         addTimeSeriesGraphs(rules):: if panels.timeSeriesGraphs then self + {
             local ruleArray = if std.type(rules) == 'array' then rules else [],
+            local startY = self._panelY,
+            _panelY:: startY + (std.length(ruleArray) / 2) * 8,
             panels+: std.mapWithIndex(function(i, rule) {
                 title: rule.alert,
                 type: 'timeseries',
@@ -52,7 +57,7 @@ local dashboard = {
                     h: 8,
                     w: 12,
                     x: (i % 2) * 12,
-                    y: std.floor(i / 2) * 8 + (if panels.alertsOverview then 8 else 0)
+                    y: std.floor(i / 2) * 8 + startY
                 },
                 datasource: { type: 'prometheus', uid: 'prometheus' },
                 description: if std.objectHas(rule, 'annotations') then rule.annotations.description else '',
@@ -89,7 +94,7 @@ local dashboard = {
                     h: 8,
                     w: 24,
                     x: 0,
-                    y: std.length(self.panels) * 8
+                    y: self._panelY
                 },
                 datasource: { type: 'prometheus', uid: 'prometheus' },
                 targets: [{
@@ -123,12 +128,48 @@ local dashboard = {
     }
 };
 
-local rules = std.parseJson('%s');
-local config = std.parseJson('%s');
-local variables = if std.length('%s') > 0 then std.parseJson('%s') else [];
+// Sample data for testing
+local sampleRules = [
+    {
+        alert: 'HighLatency',
+        expr: 'histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1',
+        annotations: {
+            description: 'High latency detected'
+        }
+    },
+    {
+        alert: 'HighErrorRate',
+        expr: 'rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1',
+        annotations: {
+            description: 'High error rate detected'
+        }
+    }
+];
 
-dashboard.new('%s', rules, config)
-    .addAlertsOverview(rules)
-    .addTimeSeriesGraphs(rules)
+local sampleConfig = {
+    panels: {
+        alertsOverview: true,
+        timeSeriesGraphs: true,
+        alertHistory: true
+    }
+};
+
+local sampleVariables = [
+    {
+        name: 'namespace',
+        type: 'query',
+        query: 'label_values(namespace)'
+    },
+    {
+        name: 'severity',
+        type: 'custom',
+        values: ['critical', 'warning', 'info']
+    }
+];
+
+// Generate dashboard with sample data
+dashboard.new('Sample Alerts Dashboard', sampleRules, sampleConfig)
+    .addAlertsOverview(sampleRules)
+    .addTimeSeriesGraphs(sampleRules)
     .addAlertHistory()
-    .addVariables(variables)
+    .addVariables(sampleVariables)
