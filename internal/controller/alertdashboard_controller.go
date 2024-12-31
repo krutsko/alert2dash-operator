@@ -8,21 +8,56 @@ package controller
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/google/go-jsonnet"
+	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/google/go-jsonnet"
-	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+//go:embed templates
+var templates embed.FS
+
+// Custom importer for embedded files
+type embedImporter struct {
+	templates embed.FS
+}
+
+func (i *embedImporter) Import(importedFrom, importedPath string) (contents jsonnet.Contents, foundAt string, err error) {
+	// If the path starts with vendor, it's relative to templates directory
+	var fullPath string
+	if strings.HasPrefix(importedPath, "vendor/") {
+		fullPath = filepath.Join("templates", importedPath)
+	} else {
+		// Handle relative imports
+		if importedFrom != "" {
+			dir := filepath.Dir(importedFrom)
+			importedPath = filepath.Join(dir, importedPath)
+		}
+		fullPath = filepath.Join("templates", importedPath)
+	}
+
+	// Read the file
+	content, err := i.templates.ReadFile(fullPath)
+	if err != nil {
+		// log.Printf("Failed to read file %s: %v", fullPath, err)
+		return jsonnet.Contents{}, "", err
+	}
+
+	return jsonnet.MakeContents(string(content)), importedPath, nil
+}
 
 // AlertDashboardReconciler reconciles a AlertDashboard object
 type AlertDashboardReconciler struct {
@@ -193,28 +228,36 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// List PrometheusRules based on label selector
 	ruleList := &monitoringv1.PrometheusRuleList{}
-	selector, _ := metav1.LabelSelectorAsSelector(alertDashboard.Spec.RuleSelector)
 	if err := r.List(ctx, ruleList, &client.ListOptions{
-		LabelSelector: selector,
 		Namespace:     req.Namespace,
+		LabelSelector: labels.Set{"generate-dashboard": "true"}.AsSelector(),
 	}); err != nil {
 		log.Error(err, "unable to list PrometheusRules")
 		return ctrl.Result{}, err
 	}
 
+	// Filter rules based on labels
+	var filteredRules []monitoringv1.PrometheusRule
+	for _, rule := range ruleList.Items {
+		if matchesLabels(rule, alertDashboard.Spec.RuleSelector) {
+			filteredRules = append(filteredRules, *rule)
+		}
+	}
+
 	// Collect all alert rules
 	var allRules []map[string]interface{}
 	var observedRules []string
-	for _, rule := range ruleList.Items {
+	for _, rule := range filteredRules {
 		observedRules = append(observedRules, rule.Name)
 		for _, group := range rule.Spec.Groups {
 			for _, alertRule := range group.Rules {
 				if alertRule.Alert != "" {
+					// Extract the base query by removing comparison operators
+					baseQuery := extractBaseQuery(alertRule.Expr.StrVal)
+
 					ruleMap := map[string]interface{}{
-						"alert":       alertRule.Alert,
-						"expr":        alertRule.Expr,
-						"annotations": alertRule.Annotations,
-						"labels":      alertRule.Labels,
+						"name":  string(alertRule.Alert),
+						"query": baseQuery,
 					}
 					allRules = append(allRules, ruleMap)
 				}
@@ -222,20 +265,81 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	// Generate dashboard using Jsonnet
-	vm := jsonnet.MakeVM()
-	jsonStr := fmt.Sprintf(
-		`%s.new("%s", %s)`,
-		dashboardTemplate,
-		alertDashboard.Spec.DashboardConfig.Title,
-		string(mustMarshal(allRules)),
-	)
+	// // Generate dashboard using Jsonnet
+	// vm := jsonnet.MakeVM()
+	// jsonStr := fmt.Sprintf(
+	// 	`%s.new("%s", %s)`,
+	// 	dashboardTemplate,
+	// 	alertDashboard.Spec.DashboardConfig.Title,
+	// 	string(mustMarshal(allRules)),
+	// )
 
-	dashboardJSON, err := vm.EvaluateSnippet("", jsonStr)
+	// dashboardJSON, err := vm.EvaluateSnippet("", jsonStr)
+	// if err != nil {
+	// 	log.Error(err, "failed to evaluate Jsonnet template")
+	// 	return ctrl.Result{}, err
+	// }
+
+	// Create metrics data
+	// metrics := []map[string]string{
+	// 	{
+	// 		"name":  "CPU Usage",
+	// 		"query": "rate(node_cpu_seconds_total{mode='system'}[5m])",
+	// 	},
+	// 	{
+	// 		"name":  "Memory Usage",
+	// 		"query": "node_memory_MemTotal_bytes - node_memory_MemFree_bytes",
+	// 	},
+	// 	{
+	// 		"name":  "Disk Usage",
+	// 		"query": "node_filesystem_size_bytes{mountpoint='/'} - node_filesystem_free_bytes{mountpoint='/'}",
+	// 	},
+	// }
+
+	// Convert metrics to JSON
+	metricsJSON := string(mustMarshal(allRules))
+	// if err != nil {
+	// 	log.Error(err, "Failed to marshal metrics")
+	// }
+
+	// Create Jsonnet VM
+	vm := jsonnet.MakeVM()
+
+	// Set external variables
+	vm.ExtVar("title", "System Metrics Dashboard")
+	vm.ExtVar("metrics", string(metricsJSON))
+
+	// Set the custom importer
+	vm.Importer(&embedImporter{templates: templates})
+
+	// Read and evaluate the template
+	template, err := templates.ReadFile("templates/dashboard.jsonnet")
 	if err != nil {
-		log.Error(err, "failed to evaluate Jsonnet template")
+		log.Error(err, "Failed to read template")
 		return ctrl.Result{}, err
 	}
+
+	// Evaluate the template
+	result, err := vm.EvaluateSnippet("dashboard.jsonnet", string(template))
+	if err != nil {
+		log.Error(err, "Failed to evaluate template")
+		return ctrl.Result{}, err
+	}
+
+	// Pretty print the result
+	var prettyJSON map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &prettyJSON); err != nil {
+		log.Error(err, "Failed to parse JSON")
+		return ctrl.Result{}, err
+	}
+
+	prettyResult, err := json.MarshalIndent(prettyJSON, "", "  ")
+	if err != nil {
+		log.Error(err, "Failed to format JSON")
+		return ctrl.Result{}, err
+	}
+
+	fmt.Println(string(prettyResult))
 
 	// Create or update ConfigMap
 	configMapName := alertDashboard.Spec.DashboardConfig.ConfigMapNamePrefix + "-" + alertDashboard.Name
@@ -253,7 +357,8 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if configMap.Data == nil {
 			configMap.Data = make(map[string]string)
 		}
-		configMap.Data[alertDashboard.Name+".json"] = dashboardJSON
+		// configMap.Data[alertDashboard.Name+".json"] = dashboardJSON
+		configMap.Data[alertDashboard.Name+".json"] = string(prettyResult)
 		return ctrl.SetControllerReference(alertDashboard, configMap, r.Scheme)
 	}); err != nil {
 		log.Error(err, "unable to create or update ConfigMap")
@@ -304,4 +409,99 @@ func (r *AlertDashboardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&monitoringv1alpha1.AlertDashboard{}).
 		Complete(r)
+}
+
+func matchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool {
+	if selector == nil {
+		return true
+	}
+
+	// Check matchLabels
+	for k, v := range selector.MatchLabels {
+		// Check resource metadata labels
+		if resourceVal, ok := rule.Labels[k]; ok {
+			if resourceVal != v {
+				return false
+			}
+			continue
+		}
+
+		// Check labels in rule groups and alert rules
+		matchFound := false
+		for _, group := range rule.Spec.Groups {
+			// Check group labels
+			if groupVal, ok := group.Labels[k]; ok && groupVal == v {
+				matchFound = true
+				break
+			}
+
+			// Check individual alert rule labels
+			for _, alertRule := range group.Rules {
+				if alertVal, ok := alertRule.Labels[k]; ok && alertVal == v {
+					matchFound = true
+					break
+				}
+			}
+			if matchFound {
+				break
+			}
+		}
+		if !matchFound {
+			return false
+		}
+	}
+
+	// Check matchExpressions
+	for _, expr := range selector.MatchExpressions {
+		switch expr.Operator {
+		case metav1.LabelSelectorOpExists:
+			exists := false
+			// Check resource metadata labels
+			if _, ok := rule.Labels[expr.Key]; ok {
+				exists = true
+			}
+
+			// Check labels in rule groups and alert rules
+			if !exists {
+				for _, group := range rule.Spec.Groups {
+					// Check group labels
+					if _, ok := group.Labels[expr.Key]; ok {
+						exists = true
+						break
+					}
+
+					// Check individual alert rule labels
+					for _, alertRule := range group.Rules {
+						if _, ok := alertRule.Labels[expr.Key]; ok {
+							exists = true
+							break
+						}
+					}
+					if exists {
+						break
+					}
+				}
+			}
+			if !exists {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func extractBaseQuery(expr string) string {
+	// Common comparison operators in Prometheus alerts
+	operators := []string{">", ">=", "<", "<=", "==", "!="}
+
+	// Find the first occurrence of any operator and trim the rest
+	query := expr
+	for _, op := range operators {
+		if idx := strings.Index(expr, op); idx != -1 {
+			query = strings.TrimSpace(expr[:idx])
+			break
+		}
+	}
+	return query
 }
