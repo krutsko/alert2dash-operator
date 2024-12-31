@@ -19,6 +19,7 @@ import (
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
+	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -222,8 +223,17 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Fetch the AlertDashboard instance
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 	if err := r.Get(ctx, req.NamespacedName, alertDashboard); err != nil {
-		log.Error(err, "unable to fetch AlertDashboard")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "unable to fetch AlertDashboard")
+			return ctrl.Result{}, err
+		}
+		// Handle deletion
+		err = r.onDashboardDeleted(ctx, req.Namespace, req.Name)
+		if err != nil {
+			log.Error(err, "error handling dashboard deletion")
+			return ctrl.Result{RequeueAfter: time.Second * 10}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// List PrometheusRules based on label selector
@@ -306,7 +316,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	vm := jsonnet.MakeVM()
 
 	// Set external variables
-	vm.ExtVar("title", "System Metrics Dashboard")
+	vm.ExtVar("title", alertDashboard.Name)
 	vm.ExtVar("metrics", string(metricsJSON))
 
 	// Set the custom importer
@@ -504,4 +514,36 @@ func extractBaseQuery(expr string) string {
 		}
 	}
 	return query
+}
+
+// onDashboardDeleted handles cleanup when an AlertDashboard is deleted
+func (r *AlertDashboardReconciler) onDashboardDeleted(ctx context.Context, namespace, name string) error {
+	log := log.FromContext(ctx)
+
+	// Find all ConfigMaps that might contain our dashboard
+	configMapList := &corev1.ConfigMapList{}
+	if err := r.List(ctx, configMapList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(map[string]string{
+			"grafana_dashboard": "1",
+		}),
+	}); err != nil {
+		return fmt.Errorf("failed to list ConfigMaps: %w", err)
+	}
+
+	for _, cm := range configMapList.Items {
+		cm := cm // Create a new variable for the closure
+
+		// Check if this ConfigMap contains our dashboard
+		if strings.HasSuffix(cm.Name, "-"+name) {
+			// Delete the ConfigMap
+			if err := r.Delete(ctx, &cm); err != nil {
+				if !kuberr.IsNotFound(err) {
+					return fmt.Errorf("failed to delete ConfigMap %s: %w", cm.Name, err)
+				}
+			}
+			log.Info("deleted dashboard ConfigMap", "namespace", cm.Namespace, "name", cm.Name)
+		}
+	}
+
+	return nil
 }
