@@ -228,7 +228,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 		// Handle deletion
-		err = r.onDashboardDeleted(ctx, req.Namespace, req.Name)
+		err = r.onDashboardDeleted(ctx, req.Name)
 		if err != nil {
 			log.Error(err, "error handling dashboard deletion")
 			return ctrl.Result{RequeueAfter: time.Second * 10}, err
@@ -275,42 +275,8 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	// // Generate dashboard using Jsonnet
-	// vm := jsonnet.MakeVM()
-	// jsonStr := fmt.Sprintf(
-	// 	`%s.new("%s", %s)`,
-	// 	dashboardTemplate,
-	// 	alertDashboard.Spec.DashboardConfig.Title,
-	// 	string(mustMarshal(allRules)),
-	// )
-
-	// dashboardJSON, err := vm.EvaluateSnippet("", jsonStr)
-	// if err != nil {
-	// 	log.Error(err, "failed to evaluate Jsonnet template")
-	// 	return ctrl.Result{}, err
-	// }
-
-	// Create metrics data
-	// metrics := []map[string]string{
-	// 	{
-	// 		"name":  "CPU Usage",
-	// 		"query": "rate(node_cpu_seconds_total{mode='system'}[5m])",
-	// 	},
-	// 	{
-	// 		"name":  "Memory Usage",
-	// 		"query": "node_memory_MemTotal_bytes - node_memory_MemFree_bytes",
-	// 	},
-	// 	{
-	// 		"name":  "Disk Usage",
-	// 		"query": "node_filesystem_size_bytes{mountpoint='/'} - node_filesystem_free_bytes{mountpoint='/'}",
-	// 	},
-	// }
-
 	// Convert metrics to JSON
 	metricsJSON := string(mustMarshal(allRules))
-	// if err != nil {
-	// 	log.Error(err, "Failed to marshal metrics")
-	// }
 
 	// Create Jsonnet VM
 	vm := jsonnet.MakeVM()
@@ -367,7 +333,6 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if configMap.Data == nil {
 			configMap.Data = make(map[string]string)
 		}
-		// configMap.Data[alertDashboard.Name+".json"] = dashboardJSON
 		configMap.Data[alertDashboard.Name+".json"] = string(prettyResult)
 		return ctrl.SetControllerReference(alertDashboard, configMap, r.Scheme)
 	}); err != nil {
@@ -517,7 +482,7 @@ func extractBaseQuery(expr string) string {
 }
 
 // onDashboardDeleted handles cleanup when an AlertDashboard is deleted
-func (r *AlertDashboardReconciler) onDashboardDeleted(ctx context.Context, namespace, name string) error {
+func (r *AlertDashboardReconciler) onDashboardDeleted(ctx context.Context, name string) error {
 	log := log.FromContext(ctx)
 
 	// Find all ConfigMaps that might contain our dashboard
