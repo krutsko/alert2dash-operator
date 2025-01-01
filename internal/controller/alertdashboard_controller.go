@@ -254,6 +254,11 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	if len(filteredRules) == 0 {
+		log.Info("No matching PrometheusRules found, skipping dashboard creation")
+		return ctrl.Result{}, nil
+	}
+
 	// Collect all alert rules
 	var allRules []map[string]interface{}
 	var observedRules []string

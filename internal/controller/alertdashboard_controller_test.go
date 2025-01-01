@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -170,6 +171,49 @@ var _ = Describe("AlertDashboard Controller", func() {
 				Namespace: "default",
 			}, configMap)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should not create ConfigMap when no PrometheusRules match", func() {
+			const resourceNameWithoutRules = "test-resource-no-rules"
+			By("creating the custom resource without matching PrometheusRules")
+			alertDashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceNameWithoutRules,
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					RuleSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"non-existent": "label",
+						},
+					},
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						Title:               "Empty Dashboard",
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, alertDashboard)).To(Succeed())
+
+			By("triggering a reconciliation")
+			reconciler := &AlertDashboardReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying no ConfigMap was created")
+			configMap := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "grafana-dashboard-" + resourceNameWithoutRules,
+				Namespace: "default",
+			}, configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(kuberr.IsNotFound(err)).To(BeTrue())
 		})
 
 		AfterEach(func() {
