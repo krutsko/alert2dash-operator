@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-jsonnet"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -26,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 //go:embed templates
@@ -63,6 +65,7 @@ func (i *embedImporter) Import(importedFrom, importedPath string) (contents json
 // AlertDashboardReconciler reconciles a AlertDashboard object
 type AlertDashboardReconciler struct {
 	client.Client
+	Log    logr.Logger
 	Scheme *runtime.Scheme
 }
 
@@ -218,7 +221,8 @@ dashboard.new('%s', rules, config)
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
 func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	log := log.FromContext(ctx).WithName("AlertDashboardReconciler")
+	r.Log = log
 
 	// Fetch the AlertDashboard instance
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
@@ -236,91 +240,55 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// List PrometheusRules based on label selector
-	ruleList := &monitoringv1.PrometheusRuleList{}
-	if err := r.List(ctx, ruleList, &client.ListOptions{
-		Namespace:     req.Namespace,
-		LabelSelector: labels.Set{"generate-dashboard": "true"}.AsSelector(),
-	}); err != nil {
+	// List all PrometheusRules that match criteria in AlertDashboard
+	filteredPrometheusRules, err := r.getPrometheusRules(ctx, req, alertDashboard)
+
+	// Check if there was an error during the listing
+	if err != nil {
 		log.Error(err, "unable to list PrometheusRules")
 		return ctrl.Result{}, err
 	}
 
-	// Filter rules based on labels
-	var filteredRules []monitoringv1.PrometheusRule
-	for _, rule := range ruleList.Items {
-		if matchesLabels(rule, alertDashboard.Spec.RuleSelector) {
-			filteredRules = append(filteredRules, *rule)
-		}
-	}
-
-	if len(filteredRules) == 0 {
+	// Check if there are any matching PrometheusRules
+	if len(filteredPrometheusRules) == 0 {
 		log.Info("No matching PrometheusRules found, skipping dashboard creation")
 		return ctrl.Result{}, nil
 	}
 
-	// Collect all alert rules
-	var allRules []map[string]interface{}
-	var observedRules []string
-	for _, rule := range filteredRules {
+	// Collect all queries from alert rules to be used to generate the dashboard
+	var allQueries []map[string]interface{}
+	var observedRules []string // TODO: check if this is needed, it used only in Status
+	for _, rule := range filteredPrometheusRules {
 		observedRules = append(observedRules, rule.Name)
 		for _, group := range rule.Spec.Groups {
 			for _, alertRule := range group.Rules {
 				if alertRule.Alert != "" {
 					// Extract the base query by removing comparison operators
-					baseQuery := extractBaseQuery(alertRule.Expr.StrVal)
+					baseQuery := r.extractBaseQuery(alertRule.Expr.StrVal)
 
 					ruleMap := map[string]interface{}{
 						"name":  string(alertRule.Alert),
 						"query": baseQuery,
 					}
-					allRules = append(allRules, ruleMap)
+					allQueries = append(allQueries, ruleMap)
 				}
 			}
 		}
 	}
 
-	// Convert metrics to JSON
-	metricsJSON := string(mustMarshal(allRules))
-
-	// Create Jsonnet VM
-	vm := jsonnet.MakeVM()
-
-	// Set external variables
-	vm.ExtVar("title", alertDashboard.Name)
-	vm.ExtVar("metrics", string(metricsJSON))
-
-	// Set the custom importer
-	vm.Importer(&embedImporter{templates: templates})
-
-	// Read and evaluate the template
-	template, err := templates.ReadFile("templates/dashboard.jsonnet")
+	// Convert queries to JSON
+	metricsJSON, err := json.Marshal(allQueries)
 	if err != nil {
-		log.Error(err, "Failed to read template")
+		log.Error(err, "Failed to marshal metrics")
 		return ctrl.Result{}, err
 	}
 
-	// Evaluate the template
-	result, err := vm.EvaluateSnippet("dashboard.jsonnet", string(template))
+	// create and evaluate jsonnet vm with external variables to generate the dashboard
+	prettyResult, err := r.generateDashboard(alertDashboard, metricsJSON, log)
 	if err != nil {
-		log.Error(err, "Failed to evaluate template")
+		log.Error(err, "Failed to generate dashboard")
 		return ctrl.Result{}, err
 	}
-
-	// Pretty print the result
-	var prettyJSON map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &prettyJSON); err != nil {
-		log.Error(err, "Failed to parse JSON")
-		return ctrl.Result{}, err
-	}
-
-	prettyResult, err := json.MarshalIndent(prettyJSON, "", "  ")
-	if err != nil {
-		log.Error(err, "Failed to format JSON")
-		return ctrl.Result{}, err
-	}
-
-	fmt.Println(string(prettyResult))
 
 	// Create or update ConfigMap
 	configMapName := alertDashboard.Spec.DashboardConfig.ConfigMapNamePrefix + "-" + alertDashboard.Name
@@ -357,12 +325,69 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func mustMarshal(v interface{}) []byte {
-	b, err := json.Marshal(v)
+func (r *AlertDashboardReconciler) generateDashboard(alertDashboard *monitoringv1alpha1.AlertDashboard, metricsJSON []byte, log logr.Logger) ([]byte, error) {
+
+	// Create Jsonnet VM
+	vm := jsonnet.MakeVM()
+
+	// Set external variables
+	vm.ExtVar("title", alertDashboard.Name)
+	vm.ExtVar("metrics", string(metricsJSON))
+
+	// Set the custom importer
+	vm.Importer(&embedImporter{templates: templates})
+
+	template, err := templates.ReadFile("templates/dashboard.jsonnet")
 	if err != nil {
-		panic(err)
+		log.Error(err, "Failed to read template")
+		return nil, err
 	}
-	return b
+
+	result, err := vm.EvaluateSnippet("dashboard.jsonnet", string(template))
+	if err != nil {
+		log.Error(err, "Failed to evaluate template")
+		return nil, err
+	}
+
+	var prettyJSON map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &prettyJSON); err != nil {
+		log.Error(err, "Failed to parse JSON")
+		return nil, err
+	}
+
+	prettyResult, err := json.MarshalIndent(prettyJSON, "", "  ")
+	if err != nil {
+		log.Error(err, "Failed to format JSON")
+		return nil, err
+	}
+
+	fmt.Println(string(prettyResult))
+	return prettyResult, nil
+}
+
+func (r *AlertDashboardReconciler) getPrometheusRules(ctx context.Context, req reconcile.Request, alertDashboard *monitoringv1alpha1.AlertDashboard) ([]monitoringv1.PrometheusRule, error) {
+	var filteredRules []monitoringv1.PrometheusRule
+
+	ruleList := &monitoringv1.PrometheusRuleList{}
+
+	listOptions := &client.ListOptions{
+		Namespace:     req.Namespace,
+		LabelSelector: labels.Set{"generate-dashboard": "true"}.AsSelector(),
+	}
+
+	err := r.List(ctx, ruleList, listOptions)
+
+	if err != nil {
+		return filteredRules, err
+	}
+
+	// Filter rules based on labels
+	for _, rule := range ruleList.Items {
+		if r.matchesLabels(rule, alertDashboard.Spec.RuleSelector) {
+			filteredRules = append(filteredRules, *rule)
+		}
+	}
+	return filteredRules, err
 }
 
 // Helper function for Create or Update operation
@@ -391,7 +416,8 @@ func (r *AlertDashboardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func matchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool {
+// matchesLabels checks if a PrometheusRule matches the given label selector
+func (r *AlertDashboardReconciler) matchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool {
 	if selector == nil {
 		return true
 	}
@@ -471,7 +497,9 @@ func matchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSele
 	return true
 }
 
-func extractBaseQuery(expr string) string {
+// extractBaseQuery removes comparison operators from a Prometheus alert expression
+// to get the base metric query
+func (a *AlertDashboardReconciler) extractBaseQuery(expr string) string {
 	// Common comparison operators in Prometheus alerts
 	operators := []string{">", ">=", "<", "<=", "==", "!="}
 
