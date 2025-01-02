@@ -13,23 +13,43 @@ dashboard.new(
   refresh='10s',
   editable=true,
 )
-.addRow(
-  row.new()
-  .addPanels(
-    std.map(
-      function(metric)
-        graphPanel.new(
-          title=metric.name,
-          datasource='Prometheus',  // Use direct datasource name
-          description=metric.name,
+.addPanels(  // Changed from addRow to addPanels
+  std.mapWithIndex(
+    function(index, metric)
+      graphPanel.new(
+        title=metric.name,
+        datasource={
+          type: 'prometheus',
+          uid: 'prometheus'
+        },
+        description=metric.name,
+      )
+      .addTarget(
+        prometheus.target(
+          metric.query,
+          legendFormat=metric.name,
         )
-        .addTarget(
-          prometheus.target(
-            metric.query,
-            legendFormat=metric.name,
-          )
-        ),
-      std.parseJson(std.extVar('metrics'))
-    )
+      )
+      + {
+        gridPos: {
+          h: 8,
+          w: 24,
+          x: 0,
+          y: index * 8
+        },
+        bars: true,
+        lines: false,
+        fill: 1,
+        transparent: true,
+        legend: {
+          alignAsTable: true,
+          avg: true,
+          max: true,
+          min: true,
+          show: true,
+          values: true
+        }
+      },
+    std.parseJson(std.extVar('metrics'))
   )
 )
