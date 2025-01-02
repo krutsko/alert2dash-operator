@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -24,9 +25,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -65,8 +71,38 @@ func (i *embedImporter) Import(importedFrom, importedPath string) (contents json
 // AlertDashboardReconciler reconciles a AlertDashboard object
 type AlertDashboardReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log         logr.Logger
+	Scheme      *runtime.Scheme
+	lastUpdated map[types.NamespacedName]time.Time
+}
+
+// Add this predicate to filter unnecessary PrometheusRule events
+type prometheusRulePredicate struct {
+	predicate.Funcs
+}
+
+func (p *prometheusRulePredicate) Create(e event.CreateEvent) bool {
+	rule, ok := e.Object.(*monitoringv1.PrometheusRule)
+	if !ok {
+		return false
+	}
+	return rule.Labels["generate-dashboard"] == "true"
+}
+
+func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
+	oldRule, ok1 := e.ObjectOld.(*monitoringv1.PrometheusRule)
+	newRule, ok2 := e.ObjectNew.(*monitoringv1.PrometheusRule)
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	// Only trigger if the rule has the required label and specs have changed
+	if newRule.Labels["generate-dashboard"] != "true" {
+		return false
+	}
+
+	// Compare the specs to see if anything relevant changed
+	return !reflect.DeepEqual(oldRule.Spec, newRule.Spec)
 }
 
 const dashboardTemplate = `
@@ -224,6 +260,23 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	log := log.FromContext(ctx).WithName("AlertDashboardReconciler")
 	r.Log = log
 
+	// Initialize lastUpdated map if nil
+	if r.lastUpdated == nil {
+		r.lastUpdated = make(map[types.NamespacedName]time.Time)
+	}
+
+	// Check if we've updated this dashboard recently (within 5 seconds)
+	lastUpdate, exists := r.lastUpdated[req.NamespacedName]
+	if exists && time.Since(lastUpdate) < 5*time.Second {
+		log.Info("Skipping reconciliation - too soon since last update")
+		return ctrl.Result{}, nil
+	}
+
+	// Update the last update time
+	r.lastUpdated[req.NamespacedName] = time.Now()
+
+	log.Info("Starting reconciliation")
+
 	// Fetch the AlertDashboard instance
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 	if err := r.Get(ctx, req.NamespacedName, alertDashboard); err != nil {
@@ -326,7 +379,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *AlertDashboardReconciler) generateDashboard(alertDashboard *monitoringv1alpha1.AlertDashboard, metricsJSON []byte, log logr.Logger) ([]byte, error) {
-
+	log.Info("Starting dashboard generation")
 	// Create Jsonnet VM
 	vm := jsonnet.MakeVM()
 
@@ -361,7 +414,7 @@ func (r *AlertDashboardReconciler) generateDashboard(alertDashboard *monitoringv
 		return nil, err
 	}
 
-	fmt.Println(string(prettyResult))
+	// fmt.Println(string(prettyResult)) // TODO: remove
 	return prettyResult, nil
 }
 
@@ -409,11 +462,99 @@ func (r *AlertDashboardReconciler) CreateOrUpdate(ctx context.Context, obj clien
 	return r.Update(ctx, obj)
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager, includes watches for PrometheusRules
 func (r *AlertDashboardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&monitoringv1alpha1.AlertDashboard{}).
+		Watches(
+			&monitoringv1.PrometheusRule{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				rule := obj.(*monitoringv1.PrometheusRule)
+
+				// Find affected dashboards
+				affectedDashboards, err := r.findAffectedDashboards(ctx, rule)
+				if err != nil {
+					log.FromContext(ctx).Error(err, "failed to find affected dashboards")
+					return nil
+				}
+
+				// Create reconcile requests for each affected dashboard
+				var requests []reconcile.Request
+				for _, dashboard := range affectedDashboards {
+					log.FromContext(ctx).Info("triggering reconciliation for affected dashboard",
+						"dashboard", dashboard.Name,
+						"rule", rule.Name)
+					requests = append(requests, reconcile.Request{
+						NamespacedName: client.ObjectKey{
+							Name:      dashboard.Name,
+							Namespace: dashboard.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+			builder.WithPredicates(&prometheusRulePredicate{}),
+		).
 		Complete(r)
+}
+
+// Add this function to handle PrometheusRule events
+func (r *AlertDashboardReconciler) findAffectedDashboards(ctx context.Context, rule *monitoringv1.PrometheusRule) ([]monitoringv1alpha1.AlertDashboard, error) {
+	var affectedDashboards []monitoringv1alpha1.AlertDashboard
+
+	// List all AlertDashboards in the same namespace
+	dashboardList := &monitoringv1alpha1.AlertDashboardList{}
+	if err := r.List(ctx, dashboardList, &client.ListOptions{
+		Namespace: rule.Namespace,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list AlertDashboards: %w", err)
+	}
+
+	// Check each dashboard to see if it matches the rule
+	for _, dashboard := range dashboardList.Items {
+		if r.matchesLabels(rule, dashboard.Spec.RuleSelector) {
+			affectedDashboards = append(affectedDashboards, dashboard)
+		}
+	}
+
+	return affectedDashboards, nil
+}
+
+// Add this function to handle PrometheusRule events
+func (r *AlertDashboardReconciler) handlePrometheusRuleEvent(ctx context.Context, rule *monitoringv1.PrometheusRule) error {
+	log := log.FromContext(ctx)
+
+	// Find all AlertDashboards that might be affected by this rule
+	affectedDashboards, err := r.findAffectedDashboards(ctx, rule)
+	if err != nil {
+		return err
+	}
+
+	// Trigger reconciliation for each affected dashboard
+	for _, dashboard := range affectedDashboards {
+		log.Info("triggering reconciliation for affected dashboard",
+			"dashboard", dashboard.Name,
+			"rule", rule.Name)
+
+		if err := r.Request(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name:      dashboard.Name,
+				Namespace: dashboard.Namespace,
+			},
+		}); err != nil {
+			log.Error(err, "failed to reconcile affected dashboard",
+				"dashboard", dashboard.Name)
+		}
+	}
+
+	return nil
+}
+
+// Add this helper method to trigger reconciliation
+func (r *AlertDashboardReconciler) Request(ctx context.Context, req reconcile.Request) error {
+	_, err := r.Reconcile(ctx, req)
+	return err
 }
 
 // matchesLabels checks if a PrometheusRule matches the given label selector
