@@ -20,6 +20,10 @@ type AlertDashboardSpec struct {
 
 	// DashboardConfig defines the Grafana dashboard configuration
 	DashboardConfig DashboardConfig `json:"dashboardConfig"`
+
+	// Optional: Custom Jsonnet template used to generate the dashboard
+	// +optional
+	CustomJsonnetTemplate string `json:"customJsonnetTemplate,omitempty"`
 }
 
 type DashboardConfig struct {

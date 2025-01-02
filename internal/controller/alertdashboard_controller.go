@@ -380,7 +380,6 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 func (r *AlertDashboardReconciler) generateDashboard(alertDashboard *monitoringv1alpha1.AlertDashboard, metricsJSON []byte, log logr.Logger) ([]byte, error) {
 	log.Info("Starting dashboard generation")
-	// Create Jsonnet VM
 	vm := jsonnet.MakeVM()
 
 	// Set external variables
@@ -390,13 +389,22 @@ func (r *AlertDashboardReconciler) generateDashboard(alertDashboard *monitoringv
 	// Set the custom importer
 	vm.Importer(&embedImporter{templates: templates})
 
-	template, err := templates.ReadFile("templates/dashboard.jsonnet")
-	if err != nil {
-		log.Error(err, "Failed to read template")
-		return nil, err
+	var templateContent string
+	if alertDashboard.Spec.CustomJsonnetTemplate != "" {
+		// Use custom template from spec
+		templateContent = alertDashboard.Spec.CustomJsonnetTemplate
+		log.Info("Using custom template from spec")
+	} else {
+		// Use default template
+		template, err := templates.ReadFile("templates/dashboard.jsonnet")
+		if err != nil {
+			log.Error(err, "Failed to read default template")
+			return nil, err
+		}
+		templateContent = string(template)
 	}
 
-	result, err := vm.EvaluateSnippet("dashboard.jsonnet", string(template))
+	result, err := vm.EvaluateSnippet("dashboard.jsonnet", templateContent)
 	if err != nil {
 		log.Error(err, "Failed to evaluate template")
 		return nil, err

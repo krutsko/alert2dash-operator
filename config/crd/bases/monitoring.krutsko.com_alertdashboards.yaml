@@ -39,6 +39,10 @@ spec:
           spec:
             description: AlertDashboardSpec defines the desired state of AlertDashboard
             properties:
+              customJsonnetTemplate:
+                description: 'Optional: Custom Jsonnet template used to generate the
+                  dashboard'
+                type: string
               dashboardConfig:
                 description: DashboardConfig defines the Grafana dashboard configuration
                 properties:
