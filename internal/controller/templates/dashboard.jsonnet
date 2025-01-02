@@ -13,15 +13,6 @@ dashboard.new(
   refresh='10s',
   editable=true,
 )
-.addTemplate(
-  template.new(
-    'instance',
-    'Prometheus',  // Use direct datasource name instead of variable
-    'label_values(up, instance)',
-    label='Instance',
-    refresh=2,
-  )
-)
 .addRow(
   row.new()
   .addPanels(
@@ -35,7 +26,7 @@ dashboard.new(
         .addTarget(
           prometheus.target(
             metric.query,
-            legendFormat='{{instance}} ' + metric.name,
+            legendFormat=metric.name,
           )
         ),
       std.parseJson(std.extVar('metrics'))
