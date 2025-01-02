@@ -13,7 +13,7 @@ dashboard.new(
   refresh='10s',
   editable=true,
 )
-.addPanels(  // Changed from addRow to addPanels
+.addPanels(
   std.mapWithIndex(
     function(index, metric)
       graphPanel.new(
@@ -22,12 +22,10 @@ dashboard.new(
           type: 'prometheus',
           uid: 'prometheus'
         },
-        description=metric.name,
       )
       .addTarget(
         prometheus.target(
           metric.query,
-          legendFormat=metric.name,
         )
       )
       + {
@@ -36,18 +34,6 @@ dashboard.new(
           w: 24,
           x: 0,
           y: index * 8
-        },
-        bars: true,
-        lines: false,
-        fill: 1,
-        transparent: true,
-        legend: {
-          alignAsTable: true,
-          avg: true,
-          max: true,
-          min: true,
-          show: true,
-          values: true
         }
       },
     std.parseJson(std.extVar('metrics'))
