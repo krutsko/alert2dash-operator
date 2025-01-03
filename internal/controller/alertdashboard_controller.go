@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus/prometheus/promql/parser"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -198,53 +198,91 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	return r.Status().Update(ctx, dashboard)
 }
 
-// extractBaseQuery removes comparison operators from a Prometheus alert expression
+// extractBaseQuery removes comparison operators from the expression while keeping the base query
 func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []string {
-	operators := []string{">", ">=", "<", "<=", "==", "!="}
-	query := alert.Expr.String()
-	var queries []string
+	expr := alert.Expr.String()
 
-	// Handle logical operators
-	for _, logicalOp := range []string{" and ", " or "} { // todo " unless "?
-		if strings.Contains(query, logicalOp) {
-			parts := strings.Split(query, logicalOp)
-			// Process each part of the expression
-			for _, part := range parts {
-				cleanQuery := r.cleanQueryPart(strings.TrimSpace(part), operators)
-				if cleanQuery != "" {
-					queries = append(queries, cleanQuery)
-				}
-			}
-			return queries
-		}
+	// Parse the PromQL expression
+	parsedExpr, err := parser.ParseExpr(expr)
+	if err != nil {
+		r.Log.Error(err, "Failed to parse PromQL expression", "expr", expr)
+		return []string{expr}
 	}
 
-	// If no logical operators, process the single query
-	cleanQuery := r.cleanQueryPart(query, operators)
-	return []string{cleanQuery}
+	return r.extractBaseQuery2(parsedExpr)
 }
 
-// cleanQueryPart removes comparison operators and bool modifiers from a query part
-func (r *AlertDashboardReconciler) cleanQueryPart(query string, operators []string) string {
-	// Remove outer parentheses
-	query = strings.TrimSpace(query)
-	if strings.HasPrefix(query, "(") && strings.HasSuffix(query, ")") {
-		query = query[1 : len(query)-1]
+func (r *AlertDashboardReconciler) extractBaseQuery2(expr parser.Expr) []string {
+	var results []string
+
+	switch e := expr.(type) {
+	case *parser.ParenExpr:
+		// For parenthesized expressions, just process the inner expression
+		return r.extractBaseQuery2(e.Expr)
+	case *parser.BinaryExpr:
+		switch e.Op {
+		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR):
+			// todo: logical operators not supported for this moment, skip
+			return []string{}
+		default:
+			// For comparison operators, just take the left side
+			if isComparisonOperator(e.Op) {
+				results = append(results, sanitizeExpr(e.LHS.String()))
+			} else {
+				results = append(results, sanitizeExpr(expr.String()))
+			}
+		}
+	default:
+		// If no operator, return the expression as is
+		results = append(results, sanitizeExpr(expr.String()))
 	}
 
-	// Remove comparison operators and bool modifier
-	for _, op := range operators {
-		if idx := strings.Index(query, op+" bool"); idx != -1 {
-			query = strings.TrimSpace(query[:idx])
-			break
-		}
-		if idx := strings.Index(query, op); idx != -1 {
-			query = strings.TrimSpace(query[:idx])
-			break
-		}
-	}
+	return results
+}
 
-	return query
+// extractBaseQueryRecursive recursively processes the expression tree
+func (r *AlertDashboardReconciler) extractBaseQueryRecursive(expr parser.Expr) []string {
+	var results []string
+
+	switch e := expr.(type) {
+	case *parser.ParenExpr:
+		// For parenthesized expressions, just process the inner expression
+		return r.extractBaseQueryRecursive(e.Expr)
+	case *parser.BinaryExpr:
+		switch e.Op {
+		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR):
+			// For logical operators, recursively process both sides
+			results = append(results, r.extractBaseQueryRecursive(e.LHS)...)
+			results = append(results, r.extractBaseQueryRecursive(e.RHS)...)
+		default:
+			// For comparison operators, just take the left side
+			if isComparisonOperator(e.Op) {
+				results = append(results, sanitizeExpr(e.LHS.String()))
+			} else {
+				results = append(results, sanitizeExpr(expr.String()))
+			}
+		}
+	default:
+		// If no operator, return the expression as is
+		results = append(results, sanitizeExpr(expr.String()))
+	}
+	return results
+}
+
+func sanitizeExpr(expr string) string {
+	// Remove surrounding parentheses if they exist
+	if len(expr) > 0 && expr[0] == '(' && expr[len(expr)-1] == ')' {
+		expr = expr[1 : len(expr)-1]
+	}
+	return expr
+}
+
+func isComparisonOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.EQL, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE, parser.EQLC:
+		return true
+	}
+	return false
 }
 
 // PrometheusRulePredicate filters PrometheusRule events

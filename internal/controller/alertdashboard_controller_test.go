@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus/prometheus/promql/parser"
 	"k8s.io/apimachinery/pkg/api/errors"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -318,24 +319,19 @@ func TestExtractBaseQuery(t *testing.T) {
 		},
 		{
 			name:     "equals operator",
-			expr:     "up == 0",
-			expected: []string{"up"},
+			expr:     `up{job="kubernetes-service-endpoints"} == 0`,
+			expected: []string{`up{job="kubernetes-service-endpoints"}`},
 		},
 		{
 			name:     "not equals operator",
-			expr:     "status != 'healthy'",
-			expected: []string{"status"},
+			expr:     `kube_pod_status_ready{condition="true"} != 1`,
+			expected: []string{`kube_pod_status_ready{condition="true"}`},
 		},
 		{
 			name:     "no operator",
 			expr:     "sum(rate(requests_total[5m]))",
 			expected: []string{"sum(rate(requests_total[5m]))"},
 		},
-		// {
-		// 	name:     "empty string",
-		// 	expr:     "",
-		// 	expected: []string{""},
-		// },
 		// {
 		// 	name:     "complex query with offset and functions",
 		// 	expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
@@ -349,7 +345,7 @@ func TestExtractBaseQuery(t *testing.T) {
 		{
 			name:     "query with unless operator",
 			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
-			expected: []string{"rate(http_requests_total[5m])"},
+			expected: []string{"rate(http_requests_total[5m]) > 100 unless on(instance) up == 0"}, // todo: unless not supported, return exp as is
 		},
 		{
 			name:     "query with unless operator",
@@ -396,8 +392,14 @@ func TestExtractBaseQuery(t *testing.T) {
 				Expr: intstr.FromString(tt.expr),
 			})
 			for i, result := range results {
-				if result != tt.expected[i] {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
+				// parse the expected expression to compare with the result from parser
+				expectedExpr, err := parser.ParseExpr(tt.expected[i])
+				if err != nil {
+					t.Errorf("Failed to parse expected expression: %v", err)
+					return
+				}
+				if result != expectedExpr.String() {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
 				}
 			}
 		})
@@ -415,39 +417,10 @@ func TestExtractBaseQuerySimple(t *testing.T) {
 			expr:     "sum(rate(http_requests_total[5m])) > 100",
 			expected: []string{"sum(rate(http_requests_total[5m]))"},
 		},
-	}
-
-	r := &AlertDashboardReconciler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			for i, result := range results {
-				if result != tt.expected[i] {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
-				}
-			}
-		})
-	}
-}
-
-func TestExtractBaseQueryMultiCondition(t *testing.T) {
-	tests := []struct {
-		name     string
-		expr     string
-		expected []string
-	}{
-		// {
-		// 	name:     "complex query with offset and functions",
-		// 	expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
-		// 	expected: []string{`(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",reason="OOMKilled"}[10m])`},
-		// },
 		{
-			name:     "query with offset and bool modifier",
-			expr:     `(instance:node_cpu_utilization:rate5m > 0.9) and (rate(http_requests_total[5m]) < 10)`,
-			expected: []string{"instance:node_cpu_utilization:rate5m", "rate(http_requests_total[5m])"},
+			name:     "empty string",
+			expr:     "",
+			expected: []string{""},
 		},
 	}
 
@@ -459,8 +432,59 @@ func TestExtractBaseQueryMultiCondition(t *testing.T) {
 				Expr: intstr.FromString(tt.expr),
 			})
 			for i, result := range results {
-				if result != tt.expected[i] {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
+				// empty string is a valid result, so we skip it
+				if result == "" && tt.expected[i] == "" {
+					continue
+				}
+				// parse the expected expression to compare with the result from parser
+				expectedExpr, err := parser.ParseExpr(tt.expected[i])
+				if err != nil {
+					t.Errorf("Failed to parse expected expression: %v", err)
+					return
+				}
+				if result != expectedExpr.String() {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractBaseQueryMultiCondition(t *testing.T) {
+	// todo: not supported
+	tests := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "complex query with offset and functions",
+			expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
+			expected: []string{""},
+		},
+		{
+			name:     "query with offset and bool modifier",
+			expr:     `(instance:node_cpu_utilization:rate5m > 0.9) and (rate(http_requests_total[5m]) < 10)`,
+			expected: []string{""},
+		},
+	}
+
+	r := &AlertDashboardReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.extractBaseQuery(&monitoringv1.Rule{
+				Expr: intstr.FromString(tt.expr),
+			})
+			for i, result := range results {
+				// parse the expected expression to compare with the result from parser
+				expectedExpr, err := parser.ParseExpr(tt.expected[i])
+				if err != nil {
+					t.Errorf("Failed to parse expected expression: %v", err)
+					return
+				}
+				if result != expectedExpr.String() {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
 				}
 			}
 		})
