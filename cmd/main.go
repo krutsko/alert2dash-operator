@@ -136,10 +136,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AlertDashboardReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	reconciler := controller.NewAlertDashboardReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		ctrl.Log.WithName("controllers").WithName("AlertDashboard"),
+	)
+	if err = reconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AlertDashboard")
 		os.Exit(1)
 	}

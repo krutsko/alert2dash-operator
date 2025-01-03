@@ -22,6 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var _ = Describe("AlertDashboard Controller", func() {
@@ -109,10 +110,11 @@ var _ = Describe("AlertDashboard Controller", func() {
 
 		It("should create a ConfigMap with dashboard panels for matching rules", func() {
 			By("triggering a reconciliation")
-			reconciler := &AlertDashboardReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
@@ -154,10 +156,11 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(k8sClient.Delete(ctx, alertDashboard)).To(Succeed())
 
 			By("triggering a reconciliation")
-			reconciler := &AlertDashboardReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
 
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
@@ -196,10 +199,11 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(k8sClient.Create(ctx, alertDashboard)).To(Succeed())
 
 			By("triggering a reconciliation")
-			reconciler := &AlertDashboardReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
