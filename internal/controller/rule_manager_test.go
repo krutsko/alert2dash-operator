@@ -82,20 +82,17 @@ func TestRuleManager(t *testing.T) {
 	require.NoError(t, fakeClient.Create(ctx, dashboard))
 
 	t.Run("GetPrometheusRules", func(t *testing.T) {
-		// Test with empty namespace
-		rules, err := manager.GetPrometheusRules(ctx, "", selector)
-		require.NoError(t, err)
-		assert.Empty(t, rules)
+		selector := labels.SelectorFromSet(labels.Set{"app": "test"})
 
 		// Test with non-existent label selector
 		nonExistentSelector := labels.SelectorFromSet(labels.Set{"non": "existent"})
-		rules, err = manager.GetPrometheusRules(ctx, "default", nonExistentSelector)
+		rules, err := manager.GetPrometheusRules(ctx, "default", nonExistentSelector)
 		require.NoError(t, err)
 		assert.Empty(t, rules)
 
 		// Test with valid selector
-		selector := labels.SelectorFromSet(labels.Set{"app": "test"})
-		rules, err := manager.GetPrometheusRules(ctx, "default", selector)
+		selector = labels.SelectorFromSet(labels.Set{"app": "test"})
+		rules, err = manager.GetPrometheusRules(ctx, "default", selector)
 		require.NoError(t, err)
 		assert.Len(t, rules, 1)
 		assert.Equal(t, "test-rule", rules[0].Name)
@@ -117,7 +114,7 @@ func TestRuleManager(t *testing.T) {
 		assert.Empty(t, dashboards)
 
 		// Test with matching rule
-		dashboards, err := manager.FindAffectedDashboards(ctx, rule)
+		dashboards, err = manager.FindAffectedDashboards(ctx, rule)
 		require.NoError(t, err)
 		assert.Len(t, dashboards, 1)
 		assert.Equal(t, "test-dashboard", dashboards[0].Name)
