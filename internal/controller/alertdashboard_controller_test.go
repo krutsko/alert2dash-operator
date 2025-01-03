@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -293,3 +294,175 @@ var _ = Describe("AlertDashboard Controller", func() {
 		})
 	})
 })
+
+func TestExtractBaseQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "greater than operator",
+			expr:     "sum(rate(http_requests_total[5m])) > 100",
+			expected: []string{"sum(rate(http_requests_total[5m]))"},
+		},
+		{
+			name:     "less than operator",
+			expr:     "node_memory_MemAvailable_bytes < 1000000",
+			expected: []string{"node_memory_MemAvailable_bytes"},
+		},
+		{
+			name:     "greater than or equal operator",
+			expr:     "rate(errors_total[5m]) >= 0.5",
+			expected: []string{"rate(errors_total[5m])"},
+		},
+		{
+			name:     "equals operator",
+			expr:     "up == 0",
+			expected: []string{"up"},
+		},
+		{
+			name:     "not equals operator",
+			expr:     "status != 'healthy'",
+			expected: []string{"status"},
+		},
+		{
+			name:     "no operator",
+			expr:     "sum(rate(requests_total[5m]))",
+			expected: []string{"sum(rate(requests_total[5m]))"},
+		},
+		// {
+		// 	name:     "empty string",
+		// 	expr:     "",
+		// 	expected: []string{""},
+		// },
+		// {
+		// 	name:     "complex query with offset and functions",
+		// 	expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
+		// 	expected: `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",reason="OOMKilled"}[10m])`,
+		// },
+		// {
+		// 	name:     "query with OR operator",
+		// 	expr:     `(node_memory_MemAvailable_bytes < 1000000) or (node_memory_MemFree_bytes < 1000000)`,
+		// 	expected: []string{"(node_memory_MemAvailable_bytes", "node_memory_MemFree_bytes"},
+		// },
+		{
+			name:     "query with unless operator",
+			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
+			expected: []string{"rate(http_requests_total[5m])"},
+		},
+		{
+			name:     "query with unless operator",
+			expr:     `sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.1`,
+			expected: []string{`sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))`},
+		},
+		{
+			name:     "query with by clause",
+			expr:     `sum by(code) (rate(http_requests_total[5m])) > 100`,
+			expected: []string{"sum by(code) (rate(http_requests_total[5m]))"},
+		},
+		{
+			name:     "query with without clause",
+			expr:     `sum without(instance) (rate(errors[5m])) >= 10`,
+			expected: []string{"sum without(instance) (rate(errors[5m]))"},
+		},
+		{
+			name:     "query with regex matching",
+			expr:     `rate(http_requests{status=~"5.."}[5m]) > 0`,
+			expected: []string{`rate(http_requests{status=~"5.."}[5m])`},
+		},
+		{
+			name:     "query with subquery",
+			expr:     `max_over_time(rate(http_requests_total[5m])[1h:]) > 100`,
+			expected: []string{"max_over_time(rate(http_requests_total[5m])[1h:])"},
+		},
+		// {
+		// 	name:     "query with offset and bool modifier",
+		// 	expr:     `(rate(errors[5m] offset 1h) > bool 0) == 1`,
+		// 	expected: "rate(errors[5m] offset 1h)",
+		// },
+		{
+			name:     "query with multiple aggregations",
+			expr:     `avg(sum by(instance) (rate(requests_total[5m]))) > 100`,
+			expected: []string{"avg(sum by(instance) (rate(requests_total[5m])))"},
+		},
+	}
+
+	r := &AlertDashboardReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.extractBaseQuery(&monitoringv1.Rule{
+				Expr: intstr.FromString(tt.expr),
+			})
+			for i, result := range results {
+				if result != tt.expected[i] {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractBaseQuerySimple(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "greater than operator",
+			expr:     "sum(rate(http_requests_total[5m])) > 100",
+			expected: []string{"sum(rate(http_requests_total[5m]))"},
+		},
+	}
+
+	r := &AlertDashboardReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.extractBaseQuery(&monitoringv1.Rule{
+				Expr: intstr.FromString(tt.expr),
+			})
+			for i, result := range results {
+				if result != tt.expected[i] {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractBaseQueryMultiCondition(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		// {
+		// 	name:     "complex query with offset and functions",
+		// 	expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
+		// 	expected: []string{`(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",reason="OOMKilled"}[10m])`},
+		// },
+		{
+			name:     "query with offset and bool modifier",
+			expr:     `(instance:node_cpu_utilization:rate5m > 0.9) and (rate(http_requests_total[5m]) < 10)`,
+			expected: []string{"instance:node_cpu_utilization:rate5m", "rate(http_requests_total[5m])"},
+		},
+	}
+
+	r := &AlertDashboardReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.extractBaseQuery(&monitoringv1.Rule{
+				Expr: intstr.FromString(tt.expr),
+			})
+			for i, result := range results {
+				if result != tt.expected[i] {
+					t.Errorf("extractBaseQuery() = %v, want %v", result, tt.expected)
+				}
+			}
+		})
+	}
+}

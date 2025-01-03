@@ -166,10 +166,11 @@ func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.Prometheu
 		for _, group := range rule.Spec.Groups {
 			for _, alertRule := range group.Rules {
 				if alertRule.Alert != "" {
-					baseQuery := r.extractBaseQuery(alertRule.Expr.StrVal)
-					ruleMap := map[string]interface{}{
-						"name":  string(alertRule.Alert),
-						"query": baseQuery,
+					baseQuery := r.extractBaseQuery(&alertRule)
+					ruleMap := map[string]interface{}{}
+					for _, query := range baseQuery {
+						ruleMap["name"] = string(alertRule.Alert)
+						ruleMap["query"] = query
 					}
 					allQueries = append(allQueries, ruleMap)
 				}
@@ -198,16 +199,51 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 }
 
 // extractBaseQuery removes comparison operators from a Prometheus alert expression
-func (r *AlertDashboardReconciler) extractBaseQuery(expr string) string {
+func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []string {
 	operators := []string{">", ">=", "<", "<=", "==", "!="}
-	query := expr
+	query := alert.Expr.String()
+	var queries []string
 
+	// Handle logical operators
+	for _, logicalOp := range []string{" and ", " or "} { // todo " unless "?
+		if strings.Contains(query, logicalOp) {
+			parts := strings.Split(query, logicalOp)
+			// Process each part of the expression
+			for _, part := range parts {
+				cleanQuery := r.cleanQueryPart(strings.TrimSpace(part), operators)
+				if cleanQuery != "" {
+					queries = append(queries, cleanQuery)
+				}
+			}
+			return queries
+		}
+	}
+
+	// If no logical operators, process the single query
+	cleanQuery := r.cleanQueryPart(query, operators)
+	return []string{cleanQuery}
+}
+
+// cleanQueryPart removes comparison operators and bool modifiers from a query part
+func (r *AlertDashboardReconciler) cleanQueryPart(query string, operators []string) string {
+	// Remove outer parentheses
+	query = strings.TrimSpace(query)
+	if strings.HasPrefix(query, "(") && strings.HasSuffix(query, ")") {
+		query = query[1 : len(query)-1]
+	}
+
+	// Remove comparison operators and bool modifier
 	for _, op := range operators {
-		if idx := strings.Index(expr, op); idx != -1 {
-			query = strings.TrimSpace(expr[:idx])
+		if idx := strings.Index(query, op+" bool"); idx != -1 {
+			query = strings.TrimSpace(query[:idx])
+			break
+		}
+		if idx := strings.Index(query, op); idx != -1 {
+			query = strings.TrimSpace(query[:idx])
 			break
 		}
 	}
+
 	return query
 }
 
