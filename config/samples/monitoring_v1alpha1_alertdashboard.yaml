@@ -1,26 +1,72 @@
 apiVersion: monitoring.krutsko.com/v1alpha1
 kind: AlertDashboard
 metadata:
-  name: app-alerts
+  name: backend-services-2
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
 spec:
   ruleSelector:
     matchLabels:
-      generate-dashboard: "true"
+      tier: backend
+    matchExpressions:
+      - key: team
+        operator: Exists
+  # Custom Jsonnet template
+  customJsonnetTemplate: |
+    local grafana = import 'vendor/grafonnet-lib/grafonnet/grafana.libsonnet';
+    local dashboard = grafana.dashboard;
+    local graphPanel = grafana.graphPanel;
+    local prometheus = grafana.prometheus;
+    local template = grafana.template;
+    local row = grafana.row;
+
+    dashboard.new(
+      std.extVar('title'),
+      tags=['generated', 'prometheus'],
+      time_from='now-1h',
+      timezone='browser',
+      refresh='10s',
+      editable=true,
+    )
+    .addPanels(
+      std.mapWithIndex(
+        function(index, metric)
+          graphPanel.new(
+            title=metric.name,
+            datasource={
+              type: 'prometheus',
+              uid: 'prometheus'
+            },
+          )
+          .addTarget(
+            prometheus.target(
+              metric.query,
+            )
+          )
+          + {
+            gridPos: {
+              h: 8,
+              w: 24,
+              x: 0,
+              y: index * 8
+            }
+          },
+        std.parseJson(std.extVar('metrics'))
+      )
+    )   
   dashboardConfig:
-    title: "Application Alerts"
-    folder: "Monitoring"
+    title: "Backend Services Alerts Overview 2"
+    folder: "Teams"
     configMapNamePrefix: "grafana-dashboard"
     panels:
       alertsOverview: true
       timeSeriesGraphs: true
       alertHistory: true
     variables:
-      - name: namespace
+      - name: team
         type: query
-        query: "label_values(namespace)"
-      - name: severity
-        type: custom
-        values:
-          - critical
-          - warning
-          - info
+        query: "label_values(team)"
+      - name: service
+        type: query
+        query: "label_values(app)"
