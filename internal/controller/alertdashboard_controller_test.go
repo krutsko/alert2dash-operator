@@ -220,6 +220,49 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(kuberr.IsNotFound(err)).To(BeTrue())
 		})
 
+		It("should handle rate limiting correctly", func() {
+			By("creating an AlertDashboard")
+			alertDashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rate-limited-dashboard",
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					RuleSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "test-app",
+						},
+					},
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						Title:               "Rate Limited Dashboard",
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, alertDashboard)).To(Succeed())
+
+			By("triggering multiple rapid reconciliations")
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			namespacedName := types.NamespacedName{
+				Name:      "rate-limited-dashboard",
+				Namespace: "default",
+			}
+
+			// First reconciliation should proceed
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Immediate second reconciliation should be rate limited
+			result2, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result2.Requeue).To(BeFalse())
+		})
+
 		AfterEach(func() {
 			By("cleaning up the PrometheusRule")
 			prometheusRule := &monitoringv1.PrometheusRule{}
