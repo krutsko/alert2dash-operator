@@ -13,6 +13,14 @@ dashboard.new(
   refresh='10s',
   editable=true,
 )
+.addTemplate(
+  template.datasource(
+    'prometheus_ds',
+    'prometheus',
+    '.*',
+    label='Data Source',
+  )
+)
 .addPanels(
   std.mapWithIndex(
     function(index, metric)
@@ -20,7 +28,7 @@ dashboard.new(
         title=metric.name,
         datasource={
           type: 'prometheus',
-          uid: 'prometheus'
+          uid: '${prometheus_ds}'
         },
       )
       .addTarget(
