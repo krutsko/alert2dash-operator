@@ -240,35 +240,6 @@ func (r *AlertDashboardReconciler) extractBaseQuery2(expr parser.Expr) []string 
 	return results
 }
 
-// extractBaseQueryRecursive recursively processes the expression tree
-func (r *AlertDashboardReconciler) extractBaseQueryRecursive(expr parser.Expr) []string {
-	var results []string
-
-	switch e := expr.(type) {
-	case *parser.ParenExpr:
-		// For parenthesized expressions, just process the inner expression
-		return r.extractBaseQueryRecursive(e.Expr)
-	case *parser.BinaryExpr:
-		switch e.Op {
-		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR):
-			// For logical operators, recursively process both sides
-			results = append(results, r.extractBaseQueryRecursive(e.LHS)...)
-			results = append(results, r.extractBaseQueryRecursive(e.RHS)...)
-		default:
-			// For comparison operators, just take the left side
-			if isComparisonOperator(e.Op) {
-				results = append(results, sanitizeExpr(e.LHS.String()))
-			} else {
-				results = append(results, sanitizeExpr(expr.String()))
-			}
-		}
-	default:
-		// If no operator, return the expression as is
-		results = append(results, sanitizeExpr(expr.String()))
-	}
-	return results
-}
-
 func sanitizeExpr(expr string) string {
 	// Remove surrounding parentheses if they exist
 	if len(expr) > 0 && expr[0] == '(' && expr[len(expr)-1] == ')' {
