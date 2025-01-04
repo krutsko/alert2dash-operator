@@ -332,20 +332,20 @@ func TestExtractBaseQuery(t *testing.T) {
 			expr:     "sum(rate(requests_total[5m]))",
 			expected: []string{"sum(rate(requests_total[5m]))"},
 		},
-		// {
-		// 	name:     "complex query with offset and functions",
-		// 	expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
-		// 	expected: `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",reason="OOMKilled"}[10m])`,
-		// },
-		// {
-		// 	name:     "query with OR operator",
-		// 	expr:     `(node_memory_MemAvailable_bytes < 1000000) or (node_memory_MemFree_bytes < 1000000)`,
-		// 	expected: []string{"(node_memory_MemAvailable_bytes", "node_memory_MemFree_bytes"},
-		// },
+		{
+			name:     "complex query with offset and functions",
+			expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
+			expected: []string{""}, // todo: not supported
+		},
+		{
+			name:     "query with OR operator",
+			expr:     `(node_memory_MemAvailable_bytes < 1000000) or (node_memory_MemFree_bytes < 1000000)`,
+			expected: []string{""}, // todo: not supported
+		},
 		{
 			name:     "query with unless operator",
 			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
-			expected: []string{"rate(http_requests_total[5m]) > 100 unless on(instance) up == 0"}, // todo: unless not supported, return exp as is
+			expected: []string{""}, // todo: not supported
 		},
 		{
 			name:     "query with unless operator",
@@ -372,11 +372,11 @@ func TestExtractBaseQuery(t *testing.T) {
 			expr:     `max_over_time(rate(http_requests_total[5m])[1h:]) > 100`,
 			expected: []string{"max_over_time(rate(http_requests_total[5m])[1h:])"},
 		},
-		// {
-		// 	name:     "query with offset and bool modifier",
-		// 	expr:     `(rate(errors[5m] offset 1h) > bool 0) == 1`,
-		// 	expected: "rate(errors[5m] offset 1h)",
-		// },
+		{
+			name:     "query with offset and bool modifier",
+			expr:     `(rate(errors[5m] offset 1h) > bool 0) == 1`,
+			expected: []string{"rate(errors[5m] offset 1h) > bool 0"},
+		},
 		{
 			name:     "query with multiple aggregations",
 			expr:     `avg(sum by(instance) (rate(requests_total[5m]))) > 100`,

@@ -221,7 +221,7 @@ func (r *AlertDashboardReconciler) extractBaseQuery2(expr parser.Expr) []string 
 		return r.extractBaseQuery2(e.Expr)
 	case *parser.BinaryExpr:
 		switch e.Op {
-		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR):
+		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR), parser.ItemType(parser.LUNLESS):
 			// todo: logical operators not supported for this moment, skip
 			return []string{}
 		default:
