@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,14 +30,14 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "test-dashboard"
 
-		metricsJSON := []byte(`[
+		metrics := []model.AlertMetric{
 			{
-				"name": "TestAlert",
-				"query": "up == 0"
-			}
-		]`)
+				Name:  "TestAlert",
+				Query: "up == 0",
+			},
+		}
 
-		result, err := generator.GenerateDashboard(dashboard, metricsJSON)
+		result, err := generator.GenerateDashboard(dashboard, metrics)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result)
 		assert.Contains(t, string(result), "test-dashboard")
@@ -54,9 +55,14 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "custom-dashboard"
 
-		metricsJSON := []byte(`{"test": "data"}`)
+		metrics := []model.AlertMetric{
+			{
+				Name:  "TestAlert",
+				Query: "up == 0",
+			},
+		}
 
-		result, err := generator.GenerateDashboard(dashboard, metricsJSON)
+		result, err := generator.GenerateDashboard(dashboard, metrics)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result)
 		assert.Contains(t, string(result), "custom-dashboard")
@@ -70,18 +76,24 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "invalid-dashboard"
 
-		_, err := generator.GenerateDashboard(dashboard, []byte(`{}`))
+		_, err := generator.GenerateDashboard(dashboard, []model.AlertMetric{})
 		assert.Error(t, err)
 	})
 
-	t.Run("GenerateDashboard with invalid metrics JSON", func(t *testing.T) {
+	t.Run("GenerateDashboard with empty metrics JSON", func(t *testing.T) {
 		dashboard := &monitoringv1alpha1.AlertDashboard{
 			Spec: monitoringv1alpha1.AlertDashboardSpec{},
 		}
 		dashboard.Name = "invalid-metrics"
 
-		_, err := generator.GenerateDashboard(dashboard, []byte(`invalid json`))
-		assert.Error(t, err)
+		generatedDashboard, err := generator.GenerateDashboard(dashboard, []model.AlertMetric{})
+		require.NoError(t, err)
+		assert.NotEmpty(t, generatedDashboard)
+
+		// Verify the dashboard contains empty panels
+		dashboardStr := string(generatedDashboard)
+		assert.Contains(t, dashboardStr, "invalid-metrics")
+		assert.Contains(t, dashboardStr, `"panels": []`)
 	})
 
 	t.Run("should handle custom Jsonnet templates", func(t *testing.T) {
@@ -92,15 +104,20 @@ func TestDashboardGenerator(t *testing.T) {
 			},
 			Spec: monitoringv1alpha1.AlertDashboardSpec{
 				CustomJsonnetTemplate: `{
-					title: std.extVar('title'),
-					panels: std.parseJson(std.extVar('metrics')),
-				}`,
+						title: std.extVar('title'),
+						panels: std.parseJson(std.extVar('metrics')),
+					}`,
 			},
 		}
 
-		metrics := []byte(`[{"title": "Test Panel", "type": "graph"}]`)
+		metrics := []model.AlertMetric{
+			{
+				Name:  "TestAlert",
+				Query: "up == 0",
+			},
+		}
 		result, err := generator.GenerateDashboard(dashboard, metrics)
 		require.NoError(t, err)
-		assert.Contains(t, string(result), "Test Panel")
+		assert.Contains(t, string(result), "TestAlert")
 	})
 }

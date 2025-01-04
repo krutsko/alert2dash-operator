@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-jsonnet"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/model"
 )
 
 // defaultDashboardGenerator implements DashboardGenerator
@@ -43,11 +44,18 @@ func (i *embedImporter) Import(importedFrom, importedPath string) (contents json
 	return jsonnet.MakeContents(string(content)), importedPath, nil
 }
 
-func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metricsJSON []byte) ([]byte, error) {
+func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.AlertMetric) ([]byte, error) {
 	g.log.Info("Generating dashboard", "name", dashboard.Name)
+	var err error
 
 	vm := jsonnet.MakeVM()
 	vm.Importer(&embedImporter{templates: g.templates})
+
+	// Marshal metrics to JSON
+	metricsJSON, err := json.Marshal(metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metrics: %w", err)
+	}
 
 	// Set external variables
 	vm.ExtVar("title", dashboard.Name)
@@ -55,7 +63,6 @@ func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alp
 
 	// Get the template content
 	var templateContent string
-	var err error
 
 	if dashboard.Spec.CustomJsonnetTemplate != "" {
 		templateContent = dashboard.Spec.CustomJsonnetTemplate

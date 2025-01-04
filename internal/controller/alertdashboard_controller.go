@@ -3,13 +3,13 @@ package controller
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/model"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/prometheus/prometheus/promql/parser"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
@@ -31,7 +31,7 @@ var templates embed.FS
 
 // DashboardGenerator handles dashboard template processing and generation
 type DashboardGenerator interface {
-	GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []byte) ([]byte, error)
+	GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.AlertMetric) ([]byte, error)
 }
 
 // RuleManager handles PrometheusRule operations
@@ -159,26 +159,27 @@ func (r *AlertDashboardReconciler) handleDashboardDeletion(ctx context.Context, 
 }
 
 // extractMetrics extracts metrics information from PrometheusRules
-func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.PrometheusRule) ([]byte, error) {
-	var allQueries []map[string]interface{}
+func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.PrometheusRule) ([]model.AlertMetric, error) {
+	var metrics []model.AlertMetric
 
 	for _, rule := range rules {
 		for _, group := range rule.Spec.Groups {
 			for _, alertRule := range group.Rules {
 				if alertRule.Alert != "" {
-					baseQuery := r.extractBaseQuery(&alertRule)
-					ruleMap := map[string]interface{}{}
-					for _, query := range baseQuery {
-						ruleMap["name"] = string(alertRule.Alert)
-						ruleMap["query"] = query
+					baseQueries := r.extractBaseQuery(&alertRule)
+					for _, query := range baseQueries {
+						metric := model.AlertMetric{
+							Name:  string(alertRule.Alert),
+							Query: query,
+						}
+						metrics = append(metrics, metric)
 					}
-					allQueries = append(allQueries, ruleMap)
 				}
 			}
 		}
 	}
 
-	return json.Marshal(allQueries)
+	return metrics, nil
 }
 
 // updateDashboardStatus updates the status of the AlertDashboard resource
