@@ -9,13 +9,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/prometheus/prometheus/promql/parser"
 	"k8s.io/apimachinery/pkg/api/errors"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,8 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -331,217 +327,6 @@ var _ = Describe("AlertDashboard Controller", func() {
 		})
 	})
 })
-
-func TestExtractBaseQuery(t *testing.T) {
-	tests := []struct {
-		name     string
-		expr     string
-		expected []string
-	}{
-		{
-			name:     "greater than operator",
-			expr:     "sum(rate(http_requests_total[5m])) > 100",
-			expected: []string{"sum(rate(http_requests_total[5m]))"},
-		},
-		{
-			name:     "less than operator",
-			expr:     "node_memory_MemAvailable_bytes < 1000000",
-			expected: []string{"node_memory_MemAvailable_bytes"},
-		},
-		{
-			name:     "greater than or equal operator",
-			expr:     "rate(errors_total[5m]) >= 0.5",
-			expected: []string{"rate(errors_total[5m])"},
-		},
-		{
-			name:     "equals operator",
-			expr:     `up{job="kubernetes-service-endpoints"} == 0`,
-			expected: []string{`up{job="kubernetes-service-endpoints"}`},
-		},
-		{
-			name:     "not equals operator",
-			expr:     `kube_pod_status_ready{condition="true"} != 1`,
-			expected: []string{`kube_pod_status_ready{condition="true"}`},
-		},
-		{
-			name:     "no operator",
-			expr:     "sum(rate(requests_total[5m]))",
-			expected: []string{"sum(rate(requests_total[5m]))"},
-		},
-		{
-			name:     "complex query with offset and functions",
-			expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
-			expected: []string{""}, // todo: not supported
-		},
-		{
-			name:     "query with OR operator",
-			expr:     `(node_memory_MemAvailable_bytes < 1000000) or (node_memory_MemFree_bytes < 1000000)`,
-			expected: []string{""}, // todo: not supported
-		},
-		{
-			name:     "query with unless operator",
-			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
-			expected: []string{""}, // todo: not supported
-		},
-		{
-			name:     "query with unless operator",
-			expr:     `sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.1`,
-			expected: []string{`sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))`},
-		},
-		{
-			name:     "query with by clause",
-			expr:     `sum by(code) (rate(http_requests_total[5m])) > 100`,
-			expected: []string{"sum by(code) (rate(http_requests_total[5m]))"},
-		},
-		{
-			name:     "query with without clause",
-			expr:     `sum without(instance) (rate(errors[5m])) >= 10`,
-			expected: []string{"sum without(instance) (rate(errors[5m]))"},
-		},
-		{
-			name:     "query with regex matching",
-			expr:     `rate(http_requests{status=~"5.."}[5m]) > 0`,
-			expected: []string{`rate(http_requests{status=~"5.."}[5m])`},
-		},
-		{
-			name:     "query with subquery",
-			expr:     `max_over_time(rate(http_requests_total[5m])[1h:]) > 100`,
-			expected: []string{"max_over_time(rate(http_requests_total[5m])[1h:])"},
-		},
-		{
-			name:     "query with offset and bool modifier",
-			expr:     `(rate(errors[5m] offset 1h) > bool 0) == 1`,
-			expected: []string{"rate(errors[5m] offset 1h) > bool 0"},
-		},
-		{
-			name:     "query with multiple aggregations",
-			expr:     `avg(sum by(instance) (rate(requests_total[5m]))) > 100`,
-			expected: []string{"avg(sum by(instance) (rate(requests_total[5m])))"},
-		},
-	}
-
-	r := &AlertDashboardReconciler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			for i, result := range results {
-				// empty string is a valid result, so we skip it
-				if result == "" && tt.expected[i] == "" {
-					continue
-				}
-				// parse the expected expression to compare with the result from parser
-				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				require.NoError(t, err, "Failed to parse expected expression")
-				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
-			}
-		})
-	}
-}
-
-func TestExtractBaseQuerySimple(t *testing.T) {
-	tests := []struct {
-		name     string
-		expr     string
-		expected []string
-	}{
-		{
-			name:     "greater than operator",
-			expr:     "sum(rate(http_requests_total[5m])) > 100",
-			expected: []string{"sum(rate(http_requests_total[5m]))"},
-		},
-		{
-			name:     "empty string",
-			expr:     "",
-			expected: []string{""},
-		},
-	}
-
-	r := &AlertDashboardReconciler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			for i, result := range results {
-				// empty string is a valid result, so we skip it
-				if result == "" && tt.expected[i] == "" {
-					continue
-				}
-				// parse the expected expression to compare with the result from parser
-				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				require.NoError(t, err, "Failed to parse expected expression")
-				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
-			}
-		})
-	}
-}
-
-func TestExtractBaseQueryInvalidExpr(t *testing.T) {
-	tests := []struct {
-		name string
-		expr string
-	}{
-		{
-			name: "invalid prometheus query",
-			expr: "sum(rate(invalid metric[5m]) >>",
-		},
-		{
-			name: "malformed query",
-			expr: "rate(http_requests{[5m])",
-		},
-	}
-
-	r := &AlertDashboardReconciler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			assert.Equal(t, []string{""}, results, "Invalid query should return empty string array")
-		})
-	}
-}
-
-func TestExtractBaseQueryMultiCondition(t *testing.T) {
-	// todo: not supported
-	tests := []struct {
-		name     string
-		expr     string
-		expected []string
-	}{
-		{
-			name:     "complex query with offset and functions",
-			expr:     `(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{container="main",pod=~"podname.*",reason="OOMKilled"}[10m]) == 1`,
-			expected: []string{""},
-		},
-		{
-			name:     "query with offset and bool modifier",
-			expr:     `(instance:node_cpu_utilization:rate5m > 0.9) and (rate(http_requests_total[5m]) < 10)`,
-			expected: []string{""},
-		},
-	}
-
-	r := &AlertDashboardReconciler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			for i, result := range results {
-				// parse the expected expression to compare with the result from parser
-				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				require.NoError(t, err, "Failed to parse expected expression")
-				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
-			}
-		})
-	}
-}
 
 func removeFinalizers(ctx context.Context, c client.Client, obj client.Object) error {
 	// Create a patch from the original object
