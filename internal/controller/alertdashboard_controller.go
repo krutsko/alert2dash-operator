@@ -191,7 +191,7 @@ func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []
 	parsedExpr, err := parser.ParseExpr(expr)
 	if err != nil {
 		r.Log.Error(err, "Failed to parse PromQL expression", "expr", expr)
-		return []string{expr}
+		return []string{""}
 	}
 
 	var results []string

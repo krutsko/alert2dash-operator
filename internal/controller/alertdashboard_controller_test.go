@@ -24,6 +24,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -392,15 +394,14 @@ func TestExtractBaseQuery(t *testing.T) {
 				Expr: intstr.FromString(tt.expr),
 			})
 			for i, result := range results {
+				// empty string is a valid result, so we skip it
+				if result == "" && tt.expected[i] == "" {
+					continue
+				}
 				// parse the expected expression to compare with the result from parser
 				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				if err != nil {
-					t.Errorf("Failed to parse expected expression: %v", err)
-					return
-				}
-				if result != expectedExpr.String() {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
-				}
+				require.NoError(t, err, "Failed to parse expected expression")
+				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
 			}
 		})
 	}
@@ -438,14 +439,36 @@ func TestExtractBaseQuerySimple(t *testing.T) {
 				}
 				// parse the expected expression to compare with the result from parser
 				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				if err != nil {
-					t.Errorf("Failed to parse expected expression: %v", err)
-					return
-				}
-				if result != expectedExpr.String() {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
-				}
+				require.NoError(t, err, "Failed to parse expected expression")
+				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
 			}
+		})
+	}
+}
+
+func TestExtractBaseQueryInvalidExpr(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{
+			name: "invalid prometheus query",
+			expr: "sum(rate(invalid metric[5m]) >>",
+		},
+		{
+			name: "malformed query",
+			expr: "rate(http_requests{[5m])",
+		},
+	}
+
+	r := &AlertDashboardReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.extractBaseQuery(&monitoringv1.Rule{
+				Expr: intstr.FromString(tt.expr),
+			})
+			assert.Equal(t, []string{""}, results, "Invalid query should return empty string array")
 		})
 	}
 }
@@ -479,13 +502,8 @@ func TestExtractBaseQueryMultiCondition(t *testing.T) {
 			for i, result := range results {
 				// parse the expected expression to compare with the result from parser
 				expectedExpr, err := parser.ParseExpr(tt.expected[i])
-				if err != nil {
-					t.Errorf("Failed to parse expected expression: %v", err)
-					return
-				}
-				if result != expectedExpr.String() {
-					t.Errorf("extractBaseQuery() = %v, want %v", result, expectedExpr)
-				}
+				require.NoError(t, err, "Failed to parse expected expression")
+				assert.Equal(t, expectedExpr.String(), result, "Extracted query does not match expected")
 			}
 		})
 	}
