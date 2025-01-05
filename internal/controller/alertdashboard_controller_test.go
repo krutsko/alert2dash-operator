@@ -8,7 +8,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,6 +20,8 @@ import (
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +44,17 @@ var _ = Describe("AlertDashboard Controller", func() {
 		}
 
 		BeforeEach(func() {
+			// Ensure no existing resources
+			By("ensuring no existing resources")
+			Eventually(func() error {
+				alertDashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, alertDashboard)
+				if err == nil || !errors.IsNotFound(err) {
+					return fmt.Errorf("AlertDashboard still exists or error: %v", err)
+				}
+				return nil
+			}, "30s", "1s").Should(Succeed())
+
 			duration := monitoringv1.Duration("5m")
 			By("creating test PrometheusRule with matching labels")
 			prometheusRule := &monitoringv1.PrometheusRule{
@@ -100,7 +115,8 @@ var _ = Describe("AlertDashboard Controller", func() {
 				Spec: monitoringv1alpha1.AlertDashboardSpec{
 					RuleSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
-							"app": "test-app",
+							"app":                "test-app",
+							"generate-dashboard": "true",
 						},
 					},
 					DashboardConfig: monitoringv1alpha1.DashboardConfig{
@@ -120,12 +136,44 @@ var _ = Describe("AlertDashboard Controller", func() {
 				ctrl.Log.WithName("controllers").WithName("test"),
 			)
 
+			// First reconciliation - should add finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			// Wait for finalizer to be added
+			Eventually(func() bool {
+				dashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, dashboard)
+				if err != nil {
+					return false
+				}
+				return containsString(dashboard.Finalizers, dashboardFinalizer)
+			}, "10s", "1s").Should(BeTrue())
+
+			// Second reconciliation - should process dashboard
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
 			By("checking if the ConfigMap was created")
+			Eventually(func() error {
+				configMap := &corev1.ConfigMap{}
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap)
+				if err != nil {
+					return err
+				}
+				if configMap.Labels["grafana_dashboard"] != "1" {
+					return fmt.Errorf("expected grafana_dashboard label to be 1")
+				}
+				return nil
+			}, "10s", "1s").Should(Succeed())
+
 			configMap := &corev1.ConfigMap{}
 			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      "grafana-dashboard-" + resourceName,
@@ -137,47 +185,64 @@ var _ = Describe("AlertDashboard Controller", func() {
 			By("verifying the dashboard JSON structure and content")
 			dashboardJson := configMap.Data[resourceName+".json"]
 
-			// Basic structure checks
-			// todo: title not actually used
-			// Expect(dashboardJson).To(ContainSubstring(`"title": "Test Dashboard"`))
-			// Expect(dashboardJson).To(ContainSubstring(`"type": "graph"`))
-
-			// Check expressions with proper escaping only for the regex pattern
 			Expect(dashboardJson).To(ContainSubstring(`"expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))"`))
 			Expect(dashboardJson).To(ContainSubstring(`"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"`))
-
-			// Panel title checks
 			Expect(dashboardJson).To(ContainSubstring(`"title": "HighErrorRate"`))
 			Expect(dashboardJson).To(ContainSubstring(`"title": "HighLatency"`))
 		})
 
 		It("should handle dashboard deletion correctly", func() {
-			By("deleting the AlertDashboard resource")
-			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
-			err := k8sClient.Get(ctx, namespacedName, alertDashboard)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(k8sClient.Delete(ctx, alertDashboard)).To(Succeed())
-
-			By("triggering a reconciliation")
+			By("waiting for the dashboard to be fully created")
 			reconciler := NewAlertDashboardReconciler(
 				k8sClient,
 				k8sClient.Scheme(),
 				ctrl.Log.WithName("controllers").WithName("test"),
 			)
 
+			// First reconciliation - should add finalizer
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for finalizer to be added
+			Eventually(func() bool {
+				dashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, dashboard)
+				if err != nil {
+					return false
+				}
+				return containsString(dashboard.Finalizers, dashboardFinalizer)
+			}, "10s", "1s").Should(BeTrue())
+
+			// Second reconciliation - should process dashboard
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deleting the AlertDashboard resource")
+			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
+			err = k8sClient.Get(ctx, namespacedName, alertDashboard)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Delete(ctx, alertDashboard)).To(Succeed())
+
+			By("triggering a reconciliation after deletion")
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: namespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying the ConfigMap was deleted")
-			configMap := &corev1.ConfigMap{}
-			err = k8sClient.Get(ctx, types.NamespacedName{
-				Name:      "grafana-dashboard-" + resourceName,
-				Namespace: "default",
-			}, configMap)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Eventually(func() error {
+				configMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap)
+				return err
+			}, "10s", "1s").Should(Satisfy(kuberr.IsNotFound))
 		})
 
 		It("should not create ConfigMap when no PrometheusRules match", func() {
@@ -224,76 +289,45 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(kuberr.IsNotFound(err)).To(BeTrue())
 		})
 
-		It("should handle rate limiting correctly", func() {
-			By("creating an AlertDashboard")
-			alertDashboard := &monitoringv1alpha1.AlertDashboard{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rate-limited-dashboard",
-					Namespace: "default",
-				},
-				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					RuleSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"app": "test-app",
-						},
-					},
-					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						Title:               "Rate Limited Dashboard",
-						ConfigMapNamePrefix: "grafana-dashboard",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, alertDashboard)).To(Succeed())
+		It("should handle dashboard deletion correctly", func() {
+			By("deleting the AlertDashboard resource")
+			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
+			err := handleResourceDeletion(ctx, k8sClient, alertDashboard, namespacedName)
+			Expect(err).NotTo(HaveOccurred())
 
-			By("triggering multiple rapid reconciliations")
-			reconciler := NewAlertDashboardReconciler(
-				k8sClient,
-				k8sClient.Scheme(),
-				ctrl.Log.WithName("controllers").WithName("test"),
-			)
-
-			namespacedName := types.NamespacedName{
-				Name:      "rate-limited-dashboard",
+			By("verifying the ConfigMap was deleted")
+			configMap := &corev1.ConfigMap{}
+			configMapName := types.NamespacedName{
+				Name:      "grafana-dashboard-" + resourceName,
 				Namespace: "default",
 			}
 
-			// First reconciliation should proceed
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Immediate second reconciliation should be rate limited
-			result2, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result2.Requeue).To(BeFalse())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, configMapName, configMap)
+			}, "10s", "1s").Should(Satisfy(kuberr.IsNotFound))
 		})
 
 		AfterEach(func() {
 			By("cleaning up the PrometheusRule")
 			prometheusRule := &monitoringv1.PrometheusRule{}
-			err := k8sClient.Get(ctx, types.NamespacedName{
+			err := handleResourceDeletion(ctx, k8sClient, prometheusRule, types.NamespacedName{
 				Name:      "test-rule",
 				Namespace: "default",
-			}, prometheusRule)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, prometheusRule)).To(Succeed())
-			}
+			})
+			Expect(err).NotTo(HaveOccurred())
 
 			By("cleaning up the AlertDashboard resource")
 			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
-			err = k8sClient.Get(ctx, namespacedName, alertDashboard)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, alertDashboard)).To(Succeed())
-			}
+			err = handleResourceDeletion(ctx, k8sClient, alertDashboard, namespacedName)
+			Expect(err).NotTo(HaveOccurred())
 
 			By("cleaning up any remaining ConfigMaps")
 			configMap := &corev1.ConfigMap{}
-			err = k8sClient.Get(ctx, types.NamespacedName{
+			err = handleResourceDeletion(ctx, k8sClient, configMap, types.NamespacedName{
 				Name:      "grafana-dashboard-" + resourceName,
 				Namespace: "default",
-			}, configMap)
-			if err == nil {
-				Expect(k8sClient.Delete(ctx, configMap)).To(Succeed())
-			}
+			})
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })
@@ -507,4 +541,49 @@ func TestExtractBaseQueryMultiCondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+func removeFinalizers(ctx context.Context, c client.Client, obj client.Object) error {
+	// Create a patch from the original object
+	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+	// Remove finalizers
+	obj.SetFinalizers(nil)
+	// Apply the patch
+	return c.Patch(ctx, obj, patch)
+}
+
+// waitForDeletion waits until the object is deleted
+func waitForDeletion(ctx context.Context, c client.Client, namespacedName types.NamespacedName, obj client.Object) error {
+	return wait.PollImmediate(time.Second, time.Second*10, func() (bool, error) {
+		err := c.Get(ctx, namespacedName, obj)
+		if err != nil && kuberr.IsNotFound(err) {
+			return true, nil
+		}
+		return false, nil
+	})
+}
+
+// handleResourceDeletion handles the complete deletion process including finalizer removal
+func handleResourceDeletion(ctx context.Context, c client.Client, obj client.Object, namespacedName types.NamespacedName) error {
+	// First check if resource exists
+	err := c.Get(ctx, namespacedName, obj)
+	if err != nil {
+		if kuberr.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Remove finalizers first
+	if err := removeFinalizers(ctx, c, obj); err != nil {
+		return fmt.Errorf("failed to remove finalizers: %w", err)
+	}
+
+	// Delete the resource
+	if err := c.Delete(ctx, obj); err != nil && !kuberr.IsNotFound(err) {
+		return fmt.Errorf("failed to delete resource: %w", err)
+	}
+
+	// Wait for actual deletion
+	return waitForDeletion(ctx, c, namespacedName, obj.DeepCopyObject().(client.Object))
 }

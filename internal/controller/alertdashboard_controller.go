@@ -13,6 +13,7 @@ import (
 	"github.com/krutsko/alert2dash-operator/internal/model"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/prometheus/prometheus/promql/parser"
+	corev1 "k8s.io/api/core/v1"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -74,7 +75,8 @@ func NewAlertDashboardReconciler(client client.Client, scheme *runtime.Scheme, l
 	}
 }
 
-// Reconcile handles the reconciliation of AlertDashboard resources
+const dashboardFinalizer = "alert2dash.monitoring.krutsko/finalizer"
+
 func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("alertdashboard", req.NamespacedName)
 
@@ -82,10 +84,27 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 	if err := r.Get(ctx, req.NamespacedName, alertDashboard); err != nil {
 		if kuberr.IsNotFound(err) {
-			return r.handleDashboardDeletion(ctx, req.NamespacedName)
+			// The resource is already gone
+			return ctrl.Result{}, nil
 		}
 		log.Error(err, "Failed to fetch AlertDashboard")
 		return ctrl.Result{}, err
+	}
+
+	// Check if the AlertDashboard is being deleted
+	if !alertDashboard.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, alertDashboard)
+	}
+
+	// Add finalizer if it doesn't exist
+	if !containsString(alertDashboard.Finalizers, dashboardFinalizer) {
+		alertDashboard.Finalizers = append(alertDashboard.Finalizers, dashboardFinalizer)
+		if err := r.Update(ctx, alertDashboard); err != nil {
+			log.Error(err, "Failed to add finalizer")
+			return ctrl.Result{}, err
+		}
+		// Return here as the update will trigger another reconciliation
+		return ctrl.Result{}, nil
 	}
 
 	// Process the dashboard
@@ -95,6 +114,50 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {
+	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
+
+	// Check if finalizer is present
+	if !containsString(dashboard.Finalizers, dashboardFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	// Implement cleanup logic
+	if err := r.cleanupDashboardResources(ctx, dashboard); err != nil {
+		log.Error(err, "Failed to cleanup dashboard resources")
+		return ctrl.Result{}, err
+	}
+
+	// Remove finalizer
+	dashboard.Finalizers = removeString(dashboard.Finalizers, dashboardFinalizer)
+	if err := r.Update(ctx, dashboard); err != nil {
+		log.Error(err, "Failed to remove finalizer")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// Helper functions
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	result := make([]string, 0, len(slice))
+	for _, item := range slice {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // processDashboard handles the main dashboard processing logic
@@ -154,13 +217,35 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	return nil
 }
 
-// handleDashboardDeletion handles cleanup when a dashboard is deleted
-func (r *AlertDashboardReconciler) handleDashboardDeletion(ctx context.Context, namespacedName types.NamespacedName) (ctrl.Result, error) {
-	if err := r.configMapManager.DeleteConfigMap(ctx, namespacedName); err != nil {
-		r.Log.Error(err, "Failed to delete ConfigMap")
-		return ctrl.Result{RequeueAfter: time.Second * 10}, err
+func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) error {
+	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
+
+	// Get list of all related ConfigMaps
+	configMapList := &corev1.ConfigMapList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(dashboard.Namespace),
+		client.MatchingLabels{
+			"app":       "alert2dash",
+			"dashboard": dashboard.Name,
+		},
 	}
-	return ctrl.Result{}, nil
+
+	if err := r.List(ctx, configMapList, listOpts...); err != nil {
+		return fmt.Errorf("failed to list ConfigMaps: %w", err)
+	}
+
+	// Delete all related ConfigMaps
+	for _, cm := range configMapList.Items {
+		if err := r.Delete(ctx, &cm); err != nil {
+			if !kuberr.IsNotFound(err) {
+				log.Error(err, "Failed to delete ConfigMap", "configmap", cm.Name)
+				return err
+			}
+		}
+		log.V(1).Info("Deleted ConfigMap", "configmap", cm.Name)
+	}
+
+	return nil
 }
 
 // extractMetrics extracts metrics information from PrometheusRules

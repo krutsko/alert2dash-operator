@@ -40,6 +40,8 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 			configMap.Labels = make(map[string]string)
 		}
 		configMap.Labels["grafana_dashboard"] = "1"
+		configMap.Labels["app"] = "alert2dash"
+		configMap.Labels["dashboard"] = dashboard.Name
 
 		// Set or update data
 		if configMap.Data == nil {

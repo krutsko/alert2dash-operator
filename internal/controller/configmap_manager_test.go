@@ -90,6 +90,8 @@ func TestConfigMapManager(t *testing.T) {
 				Namespace: "default",
 				Labels: map[string]string{
 					"grafana_dashboard": "1",
+					"app":               "alert2dash",
+					"dashboard":         "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -246,6 +248,8 @@ func TestConfigMapManager(t *testing.T) {
 				Namespace: "default",
 				Labels: map[string]string{
 					"grafana_dashboard": "1",
+					"app":               "alert2dash",
+					"dashboard":         "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -265,6 +269,8 @@ func TestConfigMapManager(t *testing.T) {
 				Namespace: "default",
 				Labels: map[string]string{
 					"grafana_dashboard": "1",
+					"app":               "alert2dash",
+					"dashboard":         "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
