@@ -75,12 +75,6 @@ func NewAlertDashboardReconciler(client client.Client, scheme *runtime.Scheme, l
 func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("alertdashboard", req.NamespacedName)
 
-	// Rate limiting check
-	if r.shouldSkipReconciliation(req.NamespacedName) {
-		log.V(1).Info("Skipping reconciliation - too soon since last update")
-		return ctrl.Result{}, nil
-	}
-
 	// Fetch the AlertDashboard instance
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 	if err := r.Get(ctx, req.NamespacedName, alertDashboard); err != nil {
@@ -98,16 +92,6 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// shouldSkipReconciliation implements rate limiting logic
-func (r *AlertDashboardReconciler) shouldSkipReconciliation(namespacedName types.NamespacedName) bool {
-	lastUpdate, exists := r.lastUpdated[namespacedName]
-	if exists && time.Since(lastUpdate) < 5*time.Second {
-		return true
-	}
-	r.lastUpdated[namespacedName] = time.Now()
-	return false
 }
 
 // processDashboard handles the main dashboard processing logic

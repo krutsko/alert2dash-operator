@@ -1,14 +1,14 @@
 apiVersion: monitoring.krutsko.com/v1alpha1
 kind: AlertDashboard
 metadata:
-  name: xxx
-  namespace: upwork-services
+  name: test-service
+  namespace: business-services
   labels:
     grafana_dashboard: "1"
 spec:
   ruleSelector:
     matchLabels:
-      serviceName: xxx
+      serviceName: test-service
   dashboardConfig:
     title: "Backend Services Alerts Overview 2"
     folder: "Teams"
