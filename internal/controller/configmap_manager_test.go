@@ -91,6 +91,14 @@ func TestConfigMapManager(t *testing.T) {
 				Labels: map[string]string{
 					"grafana_dashboard": "1",
 				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: monitoringv1alpha1.GroupVersion.String(),
+						Kind:       "AlertDashboard",
+						Name:       "test-dashboard",
+						UID:        "test-uid",
+					},
+				},
 			},
 		}
 
@@ -227,5 +235,78 @@ func TestConfigMapManager(t *testing.T) {
 		}, updatedConfigMap)
 		require.NoError(t, err)
 		assert.Equal(t, configMap.ResourceVersion, updatedConfigMap.ResourceVersion)
+	})
+
+	t.Run("DeleteConfigMap_WithOwnerReference", func(t *testing.T) {
+		// Create fake client with multiple ConfigMaps
+		// ConfigMap owned by our dashboard
+		ownedConfigMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard",
+				Namespace: "default",
+				Labels: map[string]string{
+					"grafana_dashboard": "1",
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: monitoringv1alpha1.GroupVersion.String(),
+						Kind:       "AlertDashboard",
+						Name:       "test-dashboard",
+						UID:        "test-uid",
+					},
+				},
+			},
+		}
+
+		// ConfigMap with similar name but different owner
+		unownedConfigMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard-other",
+				Namespace: "default",
+				Labels: map[string]string{
+					"grafana_dashboard": "1",
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "different/v1",
+						Kind:       "DifferentKind",
+						Name:       "different-owner",
+						UID:        "different-uid",
+					},
+				},
+			},
+		}
+
+		client := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(ownedConfigMap, unownedConfigMap).
+			Build()
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		// Test deletion
+		err := manager.DeleteConfigMap(context.Background(), types.NamespacedName{
+			Name:      "test-dashboard",
+			Namespace: "default",
+		})
+		require.NoError(t, err)
+
+		// Verify owned ConfigMap was deleted
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard",
+			Namespace: "default",
+		}, &corev1.ConfigMap{})
+		assert.Error(t, err, "Owned ConfigMap should be deleted")
+
+		// Verify unowned ConfigMap still exists
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard-other",
+			Namespace: "default",
+		}, &corev1.ConfigMap{})
+		assert.NoError(t, err, "Unowned ConfigMap should not be deleted")
 	})
 }

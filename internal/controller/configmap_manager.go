@@ -64,9 +64,12 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 }
 
 func (m *defaultConfigMapManager) DeleteConfigMap(ctx context.Context, namespacedName types.NamespacedName) error {
+	log := m.log.WithValues("namespace", namespacedName.Namespace, "dashboard", namespacedName.Name)
+
 	// Find all ConfigMaps that might contain our dashboard
 	configMapList := &corev1.ConfigMapList{}
 	if err := m.client.List(ctx, configMapList, &client.ListOptions{
+		Namespace: namespacedName.Namespace, // Scope to the same namespace
 		LabelSelector: labels.SelectorFromSet(map[string]string{
 			"grafana_dashboard": "1",
 		}),
@@ -74,19 +77,40 @@ func (m *defaultConfigMapManager) DeleteConfigMap(ctx context.Context, namespace
 		return fmt.Errorf("failed to list ConfigMaps: %w", err)
 	}
 
+	matchFound := false
 	var errs []string
 	for _, cm := range configMapList.Items {
+		// Check both name suffix and owner reference
 		if strings.HasSuffix(cm.Name, "-"+namespacedName.Name) {
+			isOwnedByUs := false
+			for _, ref := range cm.OwnerReferences {
+				if ref.Kind == "AlertDashboard" &&
+					ref.Name == namespacedName.Name &&
+					ref.APIVersion == monitoringv1alpha1.GroupVersion.String() {
+					isOwnedByUs = true
+					break
+				}
+			}
+
+			if !isOwnedByUs {
+				log.V(1).Info("Found ConfigMap with matching name but different owner",
+					"configmap", cm.Name)
+				continue
+			}
+
+			matchFound = true
 			if err := m.client.Delete(ctx, &cm); err != nil {
 				if !errors.IsNotFound(err) {
 					errs = append(errs, fmt.Sprintf("failed to delete ConfigMap %s: %v", cm.Name, err))
 				}
 			} else {
-				m.log.V(1).Info("Deleted dashboard ConfigMap",
-					"namespace", cm.Namespace,
-					"name", cm.Name)
+				log.V(1).Info("Deleted dashboard ConfigMap", "configmap", cm.Name)
 			}
 		}
+	}
+
+	if !matchFound {
+		log.V(1).Info("No matching ConfigMaps found for deletion")
 	}
 
 	if len(errs) > 0 {

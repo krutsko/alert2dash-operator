@@ -51,24 +51,26 @@ type ConfigMapManager interface {
 // AlertDashboardReconciler reconciles a AlertDashboard object
 type AlertDashboardReconciler struct {
 	client.Client
-	Log              logr.Logger
-	Scheme           *runtime.Scheme
-	lastUpdated      map[types.NamespacedName]time.Time
-	dashboardGen     DashboardGenerator
-	ruleManager      RuleManager
-	configMapManager ConfigMapManager
+	Log               logr.Logger
+	Scheme            *runtime.Scheme
+	lastUpdated       map[types.NamespacedName]time.Time
+	dashboardGen      DashboardGenerator
+	ruleManager       RuleManager
+	configMapManager  ConfigMapManager
+	processingTimeout time.Duration
 }
 
 // NewAlertDashboardReconciler creates a new reconciler with default implementations
 func NewAlertDashboardReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger) *AlertDashboardReconciler {
 	return &AlertDashboardReconciler{
-		Client:           client,
-		Scheme:           scheme,
-		Log:              log,
-		lastUpdated:      make(map[types.NamespacedName]time.Time),
-		dashboardGen:     &defaultDashboardGenerator{templates: templates, log: log.WithName("dashboard-generator")},
-		ruleManager:      &defaultRuleManager{client: client, log: log.WithName("rule-manager")},
-		configMapManager: &defaultConfigMapManager{client: client, scheme: scheme, log: log.WithName("configmap-manager")},
+		Client:            client,
+		Scheme:            scheme,
+		Log:               log,
+		lastUpdated:       make(map[types.NamespacedName]time.Time),
+		dashboardGen:      &defaultDashboardGenerator{templates: templates, log: log.WithName("dashboard-generator")},
+		ruleManager:       &defaultRuleManager{client: client, log: log.WithName("rule-manager")},
+		configMapManager:  &defaultConfigMapManager{client: client, scheme: scheme, log: log.WithName("configmap-manager")},
+		processingTimeout: 30 * time.Second,
 	}
 }
 
@@ -97,40 +99,58 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 // processDashboard handles the main dashboard processing logic
 func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) error {
+	ctx, cancel := context.WithTimeout(ctx, r.processingTimeout)
+	defer cancel()
+
+	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
+
 	// Get matching PrometheusRules
+	log.Info("Fetching matching PrometheusRules")
 	rules, err := r.ruleManager.GetPrometheusRules(ctx, dashboard.Namespace,
 		labels.Set{"generate-dashboard": "true"}.AsSelector())
 	if err != nil {
+		log.Error(err, "Failed to list PrometheusRules")
 		return fmt.Errorf("failed to list PrometheusRules: %w", err)
 	}
 
 	if len(rules) == 0 {
-		r.Log.Info("No matching PrometheusRules found", "dashboard", dashboard.Name)
+		log.Info("No matching PrometheusRules found")
 		return nil
 	}
+	log.Info("Found matching PrometheusRules", "count", len(rules))
 
 	// Extract metrics from rules
+	log.Info("Extracting metrics from rules")
 	metrics, err := r.extractMetrics(rules)
 	if err != nil {
+		log.Error(err, "Failed to extract metrics from rules")
 		return fmt.Errorf("failed to extract metrics: %w", err)
 	}
+	log.Info("Extracted metrics", "count", len(metrics))
 
 	// Generate dashboard content
+	log.Info("Generating dashboard content")
 	content, err := r.dashboardGen.GenerateDashboard(dashboard, metrics)
 	if err != nil {
+		log.Error(err, "Failed to generate dashboard content")
 		return fmt.Errorf("failed to generate dashboard: %w", err)
 	}
 
 	// Create or update ConfigMap
+	log.Info("Creating/updating ConfigMap")
 	if err := r.configMapManager.CreateOrUpdateConfigMap(ctx, dashboard, content); err != nil {
+		log.Error(err, "Failed to create/update ConfigMap")
 		return fmt.Errorf("failed to create/update ConfigMap: %w", err)
 	}
 
 	// Update status
+	log.Info("Updating dashboard status")
 	if err := r.updateDashboardStatus(ctx, dashboard, rules); err != nil {
+		log.Error(err, "Failed to update dashboard status")
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
+	log.Info("Successfully processed dashboard")
 	return nil
 }
 
@@ -290,8 +310,18 @@ func (r *AlertDashboardReconciler) handlePrometheusRuleEvent(ctx context.Context
 
 	affectedDashboards, err := r.ruleManager.FindAffectedDashboards(ctx, rule)
 	if err != nil {
-		r.Log.Error(err, "Failed to find affected dashboards")
-		return nil
+		// Log error with more context
+		r.Log.Error(err, "Failed to find affected dashboards",
+			"rule", rule.Name,
+			"namespace", rule.Namespace)
+
+		// Return the rule's own namespace for reprocessing
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{
+				Name:      rule.Name,
+				Namespace: rule.Namespace,
+			},
+		}}
 	}
 
 	var requests []reconcile.Request
