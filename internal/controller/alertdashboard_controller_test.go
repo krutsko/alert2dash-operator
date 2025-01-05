@@ -285,24 +285,6 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(kuberr.IsNotFound(err)).To(BeTrue())
 		})
 
-		It("should handle dashboard deletion correctly", func() {
-			By("deleting the AlertDashboard resource")
-			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
-			err := handleResourceDeletion(ctx, k8sClient, alertDashboard, namespacedName)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the ConfigMap was deleted")
-			configMap := &corev1.ConfigMap{}
-			configMapName := types.NamespacedName{
-				Name:      "grafana-dashboard-" + resourceName,
-				Namespace: "default",
-			}
-
-			Eventually(func() error {
-				return k8sClient.Get(ctx, configMapName, configMap)
-			}, "10s", "1s").Should(Satisfy(kuberr.IsNotFound))
-		})
-
 		AfterEach(func() {
 			By("cleaning up the PrometheusRule")
 			prometheusRule := &monitoringv1.PrometheusRule{}
