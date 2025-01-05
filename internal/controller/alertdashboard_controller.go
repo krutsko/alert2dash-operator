@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -183,7 +184,6 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	return r.Status().Update(ctx, dashboard)
 }
 
-// extractBaseQuery removes comparison operators from the expression while keeping the base query
 func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []string {
 	expr := alert.Expr.String()
 
@@ -194,43 +194,33 @@ func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []
 		return []string{expr}
 	}
 
-	return r.extractBaseQuery2(parsedExpr)
-}
-
-func (r *AlertDashboardReconciler) extractBaseQuery2(expr parser.Expr) []string {
 	var results []string
 
-	switch e := expr.(type) {
+	switch e := parsedExpr.(type) {
 	case *parser.ParenExpr:
-		// For parenthesized expressions, just process the inner expression
-		return r.extractBaseQuery2(e.Expr)
+		// For parenthesized expressions, process the inner expression
+		expr := e.Expr.String()
+		results = append(results, sanitizeExpr(expr))
 	case *parser.BinaryExpr:
 		switch e.Op {
 		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR), parser.ItemType(parser.LUNLESS):
-			// todo: logical operators not supported for this moment, skip
+			// Skip logical operators entirely
 			return []string{}
 		default:
 			// For comparison operators, just take the left side
 			if isComparisonOperator(e.Op) {
 				results = append(results, sanitizeExpr(e.LHS.String()))
 			} else {
-				results = append(results, sanitizeExpr(expr.String()))
+				// For other operators (like arithmetic), keep the whole expression
+				results = append(results, sanitizeExpr(parsedExpr.String()))
 			}
 		}
 	default:
 		// If no operator, return the expression as is
-		results = append(results, sanitizeExpr(expr.String()))
+		results = append(results, sanitizeExpr(parsedExpr.String()))
 	}
 
 	return results
-}
-
-func sanitizeExpr(expr string) string {
-	// Remove surrounding parentheses if they exist
-	if len(expr) > 0 && expr[0] == '(' && expr[len(expr)-1] == ')' {
-		expr = expr[1 : len(expr)-1]
-	}
-	return expr
 }
 
 func isComparisonOperator(op parser.ItemType) bool {
@@ -239,6 +229,15 @@ func isComparisonOperator(op parser.ItemType) bool {
 		return true
 	}
 	return false
+}
+
+func sanitizeExpr(expr string) string {
+	// Remove surrounding parentheses if they exist
+	expr = strings.TrimSpace(expr)
+	for len(expr) > 2 && expr[0] == '(' && expr[len(expr)-1] == ')' {
+		expr = strings.TrimSpace(expr[1 : len(expr)-1])
+	}
+	return expr
 }
 
 // PrometheusRulePredicate filters PrometheusRule events
