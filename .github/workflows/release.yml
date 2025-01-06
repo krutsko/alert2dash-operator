@@ -45,8 +45,6 @@ jobs:
       steps:
         - name: Checkout
           uses: actions/checkout@v4
-          with:
-            path: source
 
         - name: Install Helm
           uses: azure/setup-helm@v4
@@ -67,12 +65,11 @@ jobs:
             
         - name: Generate Helm chart
           run: |
-            cd source
             make helm
             
         - name: Publish Helm charts
           run: |
-            cd source/alert2dash
+            cd alert2dash
             yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
             helm package --app-version ${{ github.ref_name }} --version ${{ github.ref_name }} .
             
