@@ -3,10 +3,11 @@ name: Image
 on:
   push:
     branches:
-      - main  # or master, depending on your default branch
+      - main
   pull_request:
     branches:
       - main
+    types: [labeled, unlabeled, opened, synchronize, reopened]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,14 +22,19 @@ jobs:
     if: github.repository == 'krutsko/alert2dash-operator'
     runs-on: ubuntu-22.04
     outputs:
-      image-tag: ${{ steps.image.outputs.tag}}
+      image-tag: ${{ steps.meta.outputs.tags }}
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set image tag
-        run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
-        id: image
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Determine image platforms
         id: platforms
@@ -38,7 +44,6 @@ jobs:
           then
             IMAGE_PLATFORMS=linux/amd64,linux/arm64
           fi
-          echo "Building image for platforms: $IMAGE_PLATFORMS"
           echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
 
   build-only:
@@ -46,6 +51,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     if: ${{ github.repository == 'krutsko/alert2dash-operator' && github.event_name != 'push' }}
     runs-on: ubuntu-22.04
     steps:
@@ -63,17 +69,25 @@ jobs:
           context: .
           platforms: ${{ needs.set-vars.outputs.platforms }}
           push: false
-          tags: controller:${{ needs.set-vars.outputs.image-tag }}
+          tags: ${{ needs.set-vars.outputs.image-tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   build-and-publish:
     needs: [set-vars]
     permissions:
       contents: read
       packages: write
+      id-token: write
     if: ${{ github.repository == 'krutsko/alert2dash-operator' && github.event_name == 'push' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.4.0
+        with:
+          cosign-release: 'v2.2.2'
       
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -89,11 +103,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Build and push
+        id: build-and-push
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: ${{ needs.set-vars.outputs.platforms }}
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ needs.set-vars.outputs.image-tag }}
+          tags: ${{ needs.set-vars.outputs.image-tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign the published Docker image
+        env:
+          TAGS: ${{ needs.set-vars.outputs.image-tag }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
