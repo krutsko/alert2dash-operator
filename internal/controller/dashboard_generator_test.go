@@ -1,26 +1,23 @@
 package controller
 
 import (
-	"embed"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	templates "github.com/krutsko/alert2dash-operator/internal/embedfs"
 	"github.com/krutsko/alert2dash-operator/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-//go:embed templates/*
-var testTemplates embed.FS
-
 func TestDashboardGenerator(t *testing.T) {
 	testLogger := testr.New(t)
 	testLogger = testLogger.V(1) // Increase verbosity
 
 	generator := &defaultDashboardGenerator{
-		templates: testTemplates,
+		templates: templates.GrafonnetTemplates,
 		log:       testLogger,
 	}
 

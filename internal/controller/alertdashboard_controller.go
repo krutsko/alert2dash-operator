@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	templates "github.com/krutsko/alert2dash-operator/internal/embedfs"
 	"github.com/krutsko/alert2dash-operator/internal/model"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -27,9 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
-
-//go:embed templates
-var templates embed.FS
 
 // DashboardGenerator handles dashboard template processing and generation
 type DashboardGenerator interface {
@@ -68,7 +65,7 @@ func NewAlertDashboardReconciler(client client.Client, scheme *runtime.Scheme, l
 		Scheme:            scheme,
 		Log:               log,
 		lastUpdated:       make(map[types.NamespacedName]time.Time),
-		dashboardGen:      &defaultDashboardGenerator{templates: templates, log: log.WithName("dashboard-generator")},
+		dashboardGen:      &defaultDashboardGenerator{templates: templates.GrafonnetTemplates, log: log.WithName("dashboard-generator")},
 		ruleManager:       &defaultRuleManager{client: client, log: log.WithName("rule-manager")},
 		configMapManager:  &defaultConfigMapManager{client: client, scheme: scheme, log: log.WithName("configmap-manager")},
 		processingTimeout: 30 * time.Second,
