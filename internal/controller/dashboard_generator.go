@@ -76,7 +76,7 @@ func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alp
 	}
 
 	// Evaluate the template
-	result, err := vm.EvaluateSnippet("dashboard.jsonnet", templateContent)
+	result, err := vm.EvaluateAnonymousSnippet("dashboard.jsonnet", templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate template: %w", err)
 	}

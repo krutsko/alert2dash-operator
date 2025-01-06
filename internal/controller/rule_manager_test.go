@@ -82,8 +82,6 @@ func TestRuleManager(t *testing.T) {
 	require.NoError(t, fakeClient.Create(ctx, dashboard))
 
 	t.Run("GetPrometheusRules", func(t *testing.T) {
-		selector := labels.SelectorFromSet(labels.Set{"app": "test"})
-
 		// Test with non-existent label selector
 		nonExistentSelector := labels.SelectorFromSet(labels.Set{"non": "existent"})
 		rules, err := manager.GetPrometheusRules(ctx, "default", nonExistentSelector)
@@ -91,7 +89,7 @@ func TestRuleManager(t *testing.T) {
 		assert.Empty(t, rules)
 
 		// Test with valid selector
-		selector = labels.SelectorFromSet(labels.Set{"app": "test"})
+		selector := labels.SelectorFromSet(labels.Set{"app": "test"})
 		rules, err = manager.GetPrometheusRules(ctx, "default", selector)
 		require.NoError(t, err)
 		assert.Len(t, rules, 1)

@@ -229,7 +229,7 @@ func TestConfigMapManager(t *testing.T) {
 
 		// Verify no unnecessary updates were made
 		content2 := []byte(`{"test": "data"}`)
-		err = manager.CreateOrUpdateConfigMap(context.Background(), dashboard, content2)
+		_ = manager.CreateOrUpdateConfigMap(context.Background(), dashboard, content2)
 		updatedConfigMap := &corev1.ConfigMap{}
 		err = client.Get(context.Background(), types.NamespacedName{
 			Name:      "grafana-dashboard-test-dashboard",

@@ -145,7 +145,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return false
 				}
-				return containsString(dashboard.Finalizers, dashboardFinalizer)
+				return hasDashboardFinalizer(dashboard.Finalizers)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Second reconciliation - should process dashboard
@@ -208,7 +208,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return false
 				}
-				return containsString(dashboard.Finalizers, dashboardFinalizer)
+				return hasDashboardFinalizer(dashboard.Finalizers)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Second reconciliation - should process dashboard
@@ -321,7 +321,7 @@ func removeFinalizers(ctx context.Context, c client.Client, obj client.Object) e
 
 // waitForDeletion waits until the object is deleted
 func waitForDeletion(ctx context.Context, c client.Client, namespacedName types.NamespacedName, obj client.Object) error {
-	return wait.PollImmediate(time.Second, time.Second*10, func() (bool, error) {
+	return wait.PollUntilContextTimeout(ctx, time.Second, time.Second*10, true, func(ctx context.Context) (bool, error) {
 		err := c.Get(ctx, namespacedName, obj)
 		if err != nil && kuberr.IsNotFound(err) {
 			return true, nil

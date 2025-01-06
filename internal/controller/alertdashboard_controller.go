@@ -97,7 +97,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Add finalizer if it doesn't exist
-	if !containsString(alertDashboard.Finalizers, dashboardFinalizer) {
+	if !hasDashboardFinalizer(alertDashboard.Finalizers) {
 		alertDashboard.Finalizers = append(alertDashboard.Finalizers, dashboardFinalizer)
 		if err := r.Update(ctx, alertDashboard); err != nil {
 			log.Error(err, "Failed to add finalizer")
@@ -120,7 +120,7 @@ func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard
 	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
 
 	// Check if finalizer is present
-	if !containsString(dashboard.Finalizers, dashboardFinalizer) {
+	if !hasDashboardFinalizer(dashboard.Finalizers) {
 		return ctrl.Result{}, nil
 	}
 
@@ -141,9 +141,9 @@ func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard
 }
 
 // Helper functions
-func containsString(slice []string, s string) bool {
+func hasDashboardFinalizer(slice []string) bool {
 	for _, item := range slice {
-		if item == s {
+		if item == dashboardFinalizer {
 			return true
 		}
 	}
@@ -184,11 +184,7 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 
 	// Extract metrics from rules
 	log.Info("Extracting metrics from rules")
-	metrics, err := r.extractMetrics(rules)
-	if err != nil {
-		log.Error(err, "Failed to extract metrics from rules")
-		return fmt.Errorf("failed to extract metrics: %w", err)
-	}
+	metrics := r.extractMetrics(rules)
 	log.Info("Extracted metrics", "count", len(metrics))
 
 	// Generate dashboard content
@@ -249,7 +245,7 @@ func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context
 }
 
 // extractMetrics extracts metrics information from PrometheusRules
-func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.PrometheusRule) ([]model.AlertMetric, error) {
+func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.PrometheusRule) []model.AlertMetric {
 	var metrics []model.AlertMetric
 
 	for _, rule := range rules {
@@ -259,7 +255,7 @@ func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.Prometheu
 					baseQueries := r.extractBaseQuery(&alertRule)
 					for _, query := range baseQueries {
 						metric := model.AlertMetric{
-							Name:  string(alertRule.Alert),
+							Name:  alertRule.Alert,
 							Query: query,
 						}
 						metrics = append(metrics, metric)
@@ -269,7 +265,7 @@ func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.Prometheu
 		}
 	}
 
-	return metrics, nil
+	return metrics
 }
 
 // updateDashboardStatus updates the status of the AlertDashboard resource
@@ -277,7 +273,7 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	dashboard *monitoringv1alpha1.AlertDashboard,
 	rules []monitoringv1.PrometheusRule) error {
 
-	var observedRules []string
+	observedRules := make([]string, 0, len(rules))
 	for _, rule := range rules {
 		observedRules = append(observedRules, rule.Name)
 	}
@@ -409,7 +405,7 @@ func (r *AlertDashboardReconciler) handlePrometheusRuleEvent(ctx context.Context
 		}}
 	}
 
-	var requests []reconcile.Request
+	requests := make([]reconcile.Request, 0, len(affectedDashboards))
 	for _, dashboard := range affectedDashboards {
 		requests = append(requests, reconcile.Request{
 			NamespacedName: types.NamespacedName{

@@ -1,5 +1,6 @@
 run:
   timeout: 5m
+  go: '1.23'
   allow-parallel-runners: true
 
 issues:
@@ -45,3 +46,5 @@ linters-settings:
   revive:
     rules:
       - name: comment-spacings
+  lll:
+      line-length: 160

@@ -29,7 +29,7 @@ func (m *defaultRuleManager) GetPrometheusRules(ctx context.Context, namespace s
 		return nil, fmt.Errorf("failed to list PrometheusRules: %w", err)
 	}
 
-	var rules []monitoringv1.PrometheusRule
+	rules := make([]monitoringv1.PrometheusRule, 0, len(ruleList.Items))
 	for _, rule := range ruleList.Items {
 		rules = append(rules, *rule)
 	}
