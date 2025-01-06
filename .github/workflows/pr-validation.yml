@@ -33,7 +33,7 @@ jobs:
                 -name="trailing whitespace" \
                 -reporter="github-pr-check" \
                 -filter-mode="added" \
-                -fail-on-error="true" \
+                -fail-level="error" \
                 -level="error"
           echo '::endgroup::'
 
@@ -55,7 +55,7 @@ jobs:
                 -name="EOF Newline" \
                 -reporter="github-pr-check" \
                 -filter-mode="added" \
-                -fail-on-error="true" \
+                -fail-level="error" \
                 -level="error"
           echo '::endgroup::'
           popd
