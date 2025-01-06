@@ -27,7 +27,7 @@ jobs:
           set -e
           echo '::group::Checking for trailing whitespace...'
           git ls-files |
-          grep -v '^(vendor/|third_party/|templates/)' |
+          grep -v '^(vendor/|third_party/)' |
           xargs grep -nE " +$" |
           reviewdog -efm="%f:%l:%m" \
                 -name="trailing whitespace" \
@@ -45,7 +45,7 @@ jobs:
           set -e
           pushd "${GITHUB_WORKSPACE}/" || exit 1
           echo '::group::Checking for EOF newlines...'
-          LINT_FILES=$(git ls-files | grep -Ev '^(vendor/|third_party/|templates/)')
+          LINT_FILES=$(git ls-files | grep -Ev '^(vendor/|third_party/)')
           for file in $LINT_FILES; do
             if [[ -f $file && ! ( -s "$file" && -z "$(tail -c 1 $file)" ) ]]; then
               echo "$file:$((1 + $(wc -l $file | cut -d' ' -f 1))): Missing newline"
@@ -95,6 +95,11 @@ jobs:
           
       - name: Install dependencies
         run: go mod download
+
+      - name: Debug template files
+        run: |
+          echo "Checking template files..."
+          ls -R internal/embedfs/templates/        
         
       - name: Run tests
         run: make test
