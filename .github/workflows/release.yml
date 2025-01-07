@@ -77,7 +77,7 @@ jobs:
           helm package --app-version ${{ github.ref_name }} --version ${{ github.ref_name }} .
           
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-          helm push alert2dash-operator-${{ github.ref_name }}.tgz ${{ env.HELM_REPO }}
+          helm push alert2dash-${{ github.ref_name }}.tgz ${{ env.HELM_REPO }}
 
   build-only:
     needs: [set-vars]
