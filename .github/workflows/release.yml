@@ -75,13 +75,12 @@ jobs:
           yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
           yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
 
-          # Remove 'v' prefix for Helm version
+          # Remove 'v' prefix for Helm version and export it
           HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          echo "HELM_VERSION=$HELM_VERSION" >> $GITHUB_ENV
-
-          helm package --app-version ${{ github.ref_name }} --version ${{ env.HELM_VERSION }} .
+          # Use the version directly instead of environment variable
+          helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-          helm push alert2dash-${{ env.HELM_VERSION }}.tgz ${{ env.HELM_REPO }}
+          helm push alert2dash-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
 
   build-only:
     needs: [set-vars]
