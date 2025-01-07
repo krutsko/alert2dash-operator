@@ -77,10 +77,11 @@ jobs:
 
           # Remove 'v' prefix for Helm version
           HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "HELM_VERSION=$HELM_VERSION" >> $GITHUB_ENV
 
-          helm package --app-version ${{ github.ref_name }} --version ${{ HELM_VERSION }} .
+          helm package --app-version ${{ github.ref_name }} --version ${{ env.HELM_VERSION }} .
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-          helm push alert2dash-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
+          helm push alert2dash-${{ env.HELM_VERSION }}.tgz ${{ env.HELM_REPO }}
 
   build-only:
     needs: [set-vars]
