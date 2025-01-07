@@ -18,7 +18,7 @@ jobs:
     if: github.repository == 'krutsko/alert2dash-operator'
     runs-on: ubuntu-22.04
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      image-tag: v${{ steps.meta.outputs.tags }}
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - uses: actions/checkout@v4
@@ -27,16 +27,17 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/krutsko/alert2dash-operator
+          images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-            - name: Determine image platforms
-              id: platforms
-              run: |
-                IMAGE_PLATFORMS=linux/amd64,linux/arm64
-                echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
+
+      - name: Determine image platforms
+        id: platforms
+        run: |
+          IMAGE_PLATFORMS=linux/amd64,linux/arm64
+          echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
 
 
   helm:
