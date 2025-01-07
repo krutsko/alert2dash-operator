@@ -18,7 +18,7 @@ jobs:
     if: github.repository == 'krutsko/alert2dash-operator'
     runs-on: ubuntu-22.04
     outputs:
-      image-tag: v${{ steps.meta.outputs.tags }}
+      image-tag: ${{ steps.meta.outputs.tags }}
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +29,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=match,pattern=v(.*),group=1,prefix=v
             type=raw,value=latest
 
       - name: Determine image platforms
@@ -75,10 +74,13 @@ jobs:
           cd alert2dash
           yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
           yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
-          helm package --app-version ${{ github.ref_name }} --version ${{ github.ref_name }} .
           
+          # Remove 'v' prefix for Helm version
+          HELM_VERSION=${{ github.ref_name#v }}
+
+          helm package --app-version ${{ github.ref_name }} --version ${{ HELM_VERSION }} .
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-          helm push alert2dash-${{ github.ref_name }}.tgz ${{ env.HELM_REPO }}
+          helm push alert2dash-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
 
   build-only:
     needs: [set-vars]
