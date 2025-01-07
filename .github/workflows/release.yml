@@ -74,9 +74,9 @@ jobs:
           cd alert2dash
           yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
           yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
-          
+
           # Remove 'v' prefix for Helm version
-          HELM_VERSION=${{ github.ref_name#v }}
+          HELM_VERSION=$(echo "$GITHUB_REF_NAME" | sed 's/^v//')
 
           helm package --app-version ${{ github.ref_name }} --version ${{ HELM_VERSION }} .
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
