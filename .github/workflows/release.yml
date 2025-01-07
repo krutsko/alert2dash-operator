@@ -29,15 +29,15 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest
 
-      - name: Determine image platforms
-        id: platforms
-        run: |
-          IMAGE_PLATFORMS=linux/amd64,linux/arm64
-          echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
+            - name: Determine image platforms
+              id: platforms
+              run: |
+                IMAGE_PLATFORMS=linux/amd64,linux/arm64
+                echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
 
 
   helm:
