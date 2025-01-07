@@ -43,6 +43,9 @@ jobs:
   helm:
     needs: [set-vars]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
