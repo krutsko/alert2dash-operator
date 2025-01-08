@@ -1,3 +1,74 @@
+<div align="center">
+
+# Alert2Dash Operator
+
+</div>
+
+The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards that include alert overviews, history, and time series graphs.
+
+> **Note:** This operator is designed to work alongside:
+> - [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) - for managing Prometheus rules and alerts
+> - [grafana-operator](https://github.com/grafana-operator/grafana-operator) - for managing Grafana dashboards
+
+## How it works
+
+```
+                                                                                ┌───────────────┐
+┌─────────────────┐                                                            │   Dashboard   │
+│ PrometheusRule  │                                                            │   "Team Foo"  │
+│ labels:         │──┐      ┌───────────────────┐    ┌────────────────┐      └───────────────┘
+│  team: foo      │  │      │  AlertDashboard-1 │    │  ConfigMap-1   │    ┌─────────────┐    ↑
+└─────────────────┘  ├────▶ │ selector:         │ ─▶ │  (dash.json)   │──┐ │   Grafana   │────┘
+┌─────────────────┐  │      │   team: foo       │    └────────────────┘  │ │  Operator   │
+│ PrometheusRule  │──┘      └───────────────────┘                        ├▶│             │    ┌───────────────┐
+│ labels:         │                                                       │ │             │    │   Dashboard   │
+│  team: foo      │                                                      │ │             │───▶│   "Team Bar"  │
+└─────────────────┘                                                      │ └─────────────┘    └───────────────┘
+                                                                         │
+┌─────────────────┐                                                     │
+│ PrometheusRule  │──┐      ┌───────────────────┐    ┌────────────────┐│
+│ labels:         │  ├────▶ │  AlertDashboard-2 │ ─▶ │  ConfigMap-2   │┘
+│  team: bar      │  │      │ selector:         │    │  (dash.json)   │
+└─────────────────┘  │      │   team: bar       │    └────────────────┘
+┌─────────────────┐  │      └───────────────────┘
+│ PrometheusRule  │──┘
+│ labels:         │
+│  team: bar      │
+└─────────────────┘
+
+// More teams can add their rules following the same pattern
+```
+
+## Features
+
+- Automatic dashboard generation from PrometheusRules
+- Configurable dashboard layouts and panels
+- Support for custom Jsonnet templates
+- Grafana folder organization
+- Kubernetes-native deployment and configuration
+
+## Getting Started
+
+### Installation
+
+**Option 1: Helm Chart**
+
+Deploy the Alert2Dash Operator easily in your cluster using Helm:
+
+```bash
+helm upgrade -i alert2dash-operator oci://ghcr.io/grafana/helm-charts/grafana-operator --version v0.0.1
+```
+
+**Option 2: Using the installer**
+
+Users can just run kubectl to install the project, i.e.:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/alert2dash/alert2dash-operator/main/dist/install.yaml
+```
+
+
+
 ### Running on the cluster
 1. Install Instances of Custom Resources:
 
@@ -16,14 +87,6 @@ AlertDashboard:
 kubectl apply -f config/samples/monitoring_v1alpha1_alertdashboard.yaml
 ```
 
-
-# alert2dash-operator
-// TODO(user): Add simple overview of use/purpose
-
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
-
-## Getting Started
 
 ### Prerequisites
 - go version v1.22.0+
@@ -109,7 +172,8 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/alert2dash-operator/<ta
 ```
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
