@@ -40,7 +40,7 @@ jobs:
 
 
   helm:
-    needs: [set-vars]
+    needs: [set-vars, build-and-publish]
     runs-on: ubuntu-22.04
     permissions:
       contents: read
