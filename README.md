@@ -4,7 +4,7 @@
 
 </div>
 
-The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards that include alert overviews, history, and time series graphs.
+The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards. (TODO: that include alert overviews, history, and time series graphs)
 
 > **Note:** This operator is designed to work alongside:
 > - [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) - for managing Prometheus rules and alerts
@@ -48,9 +48,7 @@ Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator
 - Grafana folder organization
 - Kubernetes-native deployment and configuration
 
-## Getting Started
-
-### Installation
+## Installation
 
 **Option 1: Helm Chart**
 
@@ -68,9 +66,16 @@ Users can just run kubectl to install the project, i.e.:
 kubectl apply -f https://raw.githubusercontent.com/alert2dash/alert2dash-operator/main/dist/install.yaml
 ```
 
+## Development
 
+### Prerequisites
+- go version v1.22.0+
+- docker version 17.03+.
+- kubectl version v1.11.3+.
+- Access to a Kubernetes v1.11.3+ cluster.
 
-### Running on the cluster
+### Running from source
+
 1. Install Instances of Custom Resources:
 
 CRDs:
@@ -87,13 +92,6 @@ AlertDashboard:
 ```sh
 kubectl apply -f config/samples/monitoring_v1alpha1_alertdashboard.yaml
 ```
-
-
-### Prerequisites
-- go version v1.22.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
