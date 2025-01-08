@@ -153,3 +153,15 @@ jobs:
           TAGS: ${{ needs.set-vars.outputs.image-tag }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+      - name: Build installer
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+
+      - name: Commit and push installer
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add dist/install.yaml
+          git commit -m "Update installer for release ${{ steps.tag.outputs.tag }}"
+          git push
