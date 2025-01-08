@@ -38,3 +38,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml
+
+      - name: Update latest release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing 'latest' release if it exists
+          gh release delete latest --yes || true
+          # Create new 'latest' release
+          gh release create latest \
+            --title "Latest Release" \
+            --notes "This is always the latest release. For stable versions, please use specific version tags." \
+            dist/install.yaml
+          # Force update the latest tag
+          git tag -f latest
+          git push origin latest --force
