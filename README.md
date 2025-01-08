@@ -64,10 +64,10 @@ Users can just run kubectl to install the project, i.e.:
 
 ```sh
 # Latest release
-kubectl apply -f https://github.com/alert2dash/alert2dash-operator/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/latest/install.yaml
 
 # Specific version
-kubectl apply -f https://github.com/alert2dash/alert2dash-operator/releases/download/v0.1.0/install.yaml
+kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/v0.0.1/install.yaml
 ```
 
 ## Development
