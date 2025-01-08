@@ -80,7 +80,7 @@ jobs:
           # Use the version directly instead of environment variable
           helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-          helm push alert2dash-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
+          helm push alert2dash-operator-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
 
   build-only:
     needs: [set-vars]
