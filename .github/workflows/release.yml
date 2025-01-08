@@ -78,7 +78,7 @@ jobs:
           # Remove 'v' prefix for Helm version and export it
           HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           # Use the version directly instead of environment variable
-          helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
+          helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} . --name alert2dash-operator
           helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
           helm push alert2dash-operator-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
 

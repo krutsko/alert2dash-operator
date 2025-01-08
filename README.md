@@ -55,7 +55,7 @@ Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator
 Deploy the Alert2Dash Operator easily in your cluster using Helm:
 
 ```bash
-helm upgrade -i alert2dash oci://ghcr.io/krutsko/helm-charts/alert2dash -n alert2dash-system
+helm upgrade -i alert2dash oci://ghcr.io/krutsko/helm-charts/alert2dash-operator -n alert2dash-system
 ```
 
 **Option 2: Using the installer**
@@ -67,7 +67,7 @@ Users can just run kubectl to install the project, i.e.:
 kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/latest/install.yaml
 
 # Specific version
-kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/v0.0.1/install.yaml
+kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/vX.Y.Z/install.yaml
 ```
 
 ## Development
