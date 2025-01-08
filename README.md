@@ -12,31 +12,32 @@ The Alert2Dash Operator is a Kubernetes operator that automatically generates Gr
 
 ## How it works
 
+Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator:
+
 ```
-                                                                                ┌───────────────┐
-┌─────────────────┐                                                            │   Dashboard   │
-│ PrometheusRule  │                                                            │   "Team Foo"  │
-│ labels:         │──┐      ┌───────────────────┐    ┌────────────────┐      └───────────────┘
-│  team: foo      │  │      │  AlertDashboard-1 │    │  ConfigMap-1   │    ┌─────────────┐    ↑
-└─────────────────┘  ├────▶ │ selector:         │ ─▶ │  (dash.json)   │──┐ │   Grafana   │────┘
-┌─────────────────┐  │      │   team: foo       │    └────────────────┘  │ │  Operator   │
-│ PrometheusRule  │──┘      └───────────────────┘                        ├▶│             │    ┌───────────────┐
-│ labels:         │                                                       │ │             │    │   Dashboard   │
-│  team: foo      │                                                      │ │             │───▶│   "Team Bar"  │
-└─────────────────┘                                                      │ └─────────────┘    └───────────────┘
-                                                                         │
-┌─────────────────┐                                                     │
-│ PrometheusRule  │──┐      ┌───────────────────┐    ┌────────────────┐│
-│ labels:         │  ├────▶ │  AlertDashboard-2 │ ─▶ │  ConfigMap-2   │┘
-│  team: bar      │  │      │ selector:         │    │  (dash.json)   │
-└─────────────────┘  │      │   team: bar       │    └────────────────┘
-┌─────────────────┐  │      └───────────────────┘
-│ PrometheusRule  │──┘
+                                                                                
+┌─────────────────┐                                                            
+│ PrometheusRule  │                                                            
+│ labels:         │──┐      ┌───────────────────┐    ┌────────────────┐       ┌─────────────┐      ┌────────────────┐
+│  team: foo      │  │      │  AlertDashboard-1 │    │  ConfigMap-1   │       │   Grafana   │      │ Dashboard      │
+└─────────────────┘  ├────▶ │  selector:        │──▶ │  (dash.json)   │──────▶│  Operator   │─────▶│ "Team Foo"     │
+┌─────────────────┐  │      │    team: foo      │    └────────────────┘       │             │      └────────────────┘
+│ PrometheusRule  │──┘      └───────────────────┘                             │             │
+│ labels:         │                                                           │             │
+│  team: foo      │                                                           │             │      ┌────────────────┐
+└─────────────────┘                                                           │             │      │ Dashboard      │
+                                                                              │             │────▶ │ "Team Bar"     │
+┌─────────────────┐                                                           │             │      └────────────────┘
+│ PrometheusRule  │──┐      ┌───────────────────┐    ┌────────────────┐       │             │
+│ labels:         │  │      │  AlertDashboard-2 │    │  ConfigMap-2   │       │             │
+│  team: bar      │  ├────▶ │  selector:        │──▶ │  (dash.json)   │──────▶│             │
+└─────────────────┘  │      │    team: bar      │    └────────────────┘       │             │
+┌─────────────────┐  │      └───────────────────┘                             │             │
+│ PrometheusRule  │──┘                                                        └─────────────┘
 │ labels:         │
 │  team: bar      │
 └─────────────────┘
 
-// More teams can add their rules following the same pattern
 ```
 
 ## Features
