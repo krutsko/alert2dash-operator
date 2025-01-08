@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write  # Needed for release upload
+  contents: write
 
 jobs:
   upload-installer:
@@ -17,38 +17,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build installer
-        run: |
-          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
-
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create ${{ steps.tag.outputs.tag }} \
             --title "Release ${{ steps.tag.outputs.tag }}" \
-            --generate-notes \
-            dist/install.yaml
+            --generate-notes
 
-      - name: Update release notes with installation methods
+      - name: Build installer
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+
+      - name: Upload installer to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit ${{ steps.tag.outputs.tag }} --notes-append "
-
-          ## Installation Methods
-          
-          1. Using Helm Chart (recommended):
-          \`\`\`sh
-          helm install alert2dash-operator oci://ghcr.io/${{ github.repository }}/chart:${{ steps.tag.outputs.tag }}
-          \`\`\`
-
-          2. Using kubectl:
-          \`\`\`sh
-          kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/install.yaml
-          \`\`\`
-
-          ## Component Versions
-          - Helm Chart: \`${{ steps.tag.outputs.tag }}\`
-          - Operator Image: \`ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}\`
-          " 
+          gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml
