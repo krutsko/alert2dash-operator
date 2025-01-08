@@ -158,10 +158,8 @@ jobs:
         run: |
           make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
 
-      - name: Commit and push installer
+      - name: Upload installer to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git add dist/install.yaml
-          git commit -m "Update installer for release ${{ steps.tag.outputs.tag }}"
-          git push
+          gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml

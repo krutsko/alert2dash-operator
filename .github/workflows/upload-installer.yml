@@ -1,0 +1,28 @@
+name: Upload Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write  # Needed for release upload
+
+jobs:
+  upload-installer:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build installer
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ inputs.tag }}
+
+      - name: Upload installer to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ inputs.tag }} dist/install.yaml --clobber 
