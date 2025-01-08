@@ -4,7 +4,7 @@
 
 </div>
 
-The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards that include alert overviews, history, and time series graphs.
+The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards. (TODO: that include alert overviews, history, and time series graphs)
 
 > **Note:** This operator is designed to work alongside:
 > - [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) - for managing Prometheus rules and alerts
@@ -48,16 +48,14 @@ Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator
 - Grafana folder organization
 - Kubernetes-native deployment and configuration
 
-## Getting Started
-
-### Installation
+## Installation
 
 **Option 1: Helm Chart**
 
 Deploy the Alert2Dash Operator easily in your cluster using Helm:
 
 ```bash
-helm upgrade -i alert2dash-operator oci://ghcr.io/grafana/helm-charts/grafana-operator --version v0.0.1
+helm upgrade -i alert2dash oci://ghcr.io/krutsko/helm-charts/alert2dash -n alert2dash-system
 ```
 
 **Option 2: Using the installer**
@@ -65,12 +63,23 @@ helm upgrade -i alert2dash-operator oci://ghcr.io/grafana/helm-charts/grafana-op
 Users can just run kubectl to install the project, i.e.:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/alert2dash/alert2dash-operator/main/dist/install.yaml
+# Latest release
+kubectl apply -f https://github.com/alert2dash/alert2dash-operator/releases/latest/download/install.yaml
+
+# Specific version
+kubectl apply -f https://github.com/alert2dash/alert2dash-operator/releases/download/v0.1.0/install.yaml
 ```
 
+## Development
 
+### Prerequisites
+- go version v1.22.0+
+- docker version 17.03+.
+- kubectl version v1.11.3+.
+- Access to a Kubernetes v1.11.3+ cluster.
 
-### Running on the cluster
+### Running from source
+
 1. Install Instances of Custom Resources:
 
 CRDs:
@@ -87,13 +96,6 @@ AlertDashboard:
 ```sh
 kubectl apply -f config/samples/monitoring_v1alpha1_alertdashboard.yaml
 ```
-
-
-### Prerequisites
-- go version v1.22.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
