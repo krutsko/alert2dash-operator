@@ -1,6 +1,4 @@
 /*
-Copyright (c) 2024
-
 Licensed under MIT License. See LICENSE file in the root directory of this repository.
 */
 
@@ -27,33 +25,11 @@ type AlertDashboardSpec struct {
 }
 
 type DashboardConfig struct {
-	// Title of the dashboard
-	Title string `json:"title,omitempty"`
-
 	// Folder in Grafana where dashboard will be stored
 	Folder string `json:"folder,omitempty"`
 
 	// ConfigMapNamePrefix for the generated ConfigMap
 	ConfigMapNamePrefix string `json:"configMapNamePrefix,omitempty"`
-
-	// Panels configuration
-	Panels *PanelConfig `json:"panels,omitempty"`
-
-	// Variables for the dashboard
-	Variables []Variable `json:"variables,omitempty"`
-}
-
-type PanelConfig struct {
-	AlertsOverview   bool `json:"alertsOverview,omitempty"`
-	TimeSeriesGraphs bool `json:"timeSeriesGraphs,omitempty"`
-	AlertHistory     bool `json:"alertHistory,omitempty"`
-}
-
-type Variable struct {
-	Name   string   `json:"name"`
-	Type   string   `json:"type"`
-	Query  string   `json:"query,omitempty"`
-	Values []string `json:"values,omitempty"`
 }
 
 // AlertDashboardStatus defines the observed state of AlertDashboard

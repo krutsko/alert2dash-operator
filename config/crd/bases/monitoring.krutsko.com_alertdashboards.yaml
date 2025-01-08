@@ -52,38 +52,6 @@ spec:
                   folder:
                     description: Folder in Grafana where dashboard will be stored
                     type: string
-                  panels:
-                    description: Panels configuration
-                    properties:
-                      alertHistory:
-                        type: boolean
-                      alertsOverview:
-                        type: boolean
-                      timeSeriesGraphs:
-                        type: boolean
-                    type: object
-                  title:
-                    description: Title of the dashboard
-                    type: string
-                  variables:
-                    description: Variables for the dashboard
-                    items:
-                      properties:
-                        name:
-                          type: string
-                        query:
-                          type: string
-                        type:
-                          type: string
-                        values:
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - name
-                      - type
-                      type: object
-                    type: array
                 type: object
               ruleSelector:
                 description: RuleSelector selects PrometheusRules based on labels

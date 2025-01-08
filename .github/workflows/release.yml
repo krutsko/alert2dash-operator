@@ -112,7 +112,7 @@ jobs:
   build-and-publish:
     needs: [set-vars]
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     if: ${{ github.repository == 'krutsko/alert2dash-operator' && github.event_name == 'push' }}

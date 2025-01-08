@@ -1,6 +1,4 @@
 /*
-Copyright (c) 2024
-
 Licensed under MIT License. See LICENSE file in the root directory of this repository.
 */
 

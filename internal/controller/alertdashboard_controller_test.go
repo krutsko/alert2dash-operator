@@ -1,6 +1,4 @@
 /*
-Copyright (c) 2024
-
 Licensed under MIT License. See LICENSE file in the root directory of this repository.
 */
 
@@ -116,7 +114,6 @@ var _ = Describe("AlertDashboard Controller", func() {
 						},
 					},
 					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						Title:               "Test Dashboard",
 						ConfigMapNamePrefix: "grafana-dashboard",
 					},
 				},
@@ -256,7 +253,6 @@ var _ = Describe("AlertDashboard Controller", func() {
 						},
 					},
 					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						Title:               "Empty Dashboard",
 						ConfigMapNamePrefix: "grafana-dashboard",
 					},
 				},
