@@ -1,0 +1,54 @@
+name: Upload Helm Chart
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  helm:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Prepare
+        run: |
+          # OCI standard enforces lower-case paths
+          GHCR_REPO=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          HELM_REPO=$(echo "oci://ghcr.io/${{ github.repository_owner }}/helm-charts" | tr '[:upper:]' '[:lower:]')
+          echo "GHCR_REPO=$GHCR_REPO" >> $GITHUB_ENV
+          echo "HELM_REPO=$HELM_REPO" >> $GITHUB_ENV
+        
+      - name: Install Helmify
+        run: |
+          go install github.com/arttor/helmify/cmd/helmify@latest
+          
+      - name: Generate Helm chart
+        run: |
+          make helm
+          
+      - name: Publish Helm charts
+        run: |
+          cd alert2dash
+          yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
+          yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
+
+          # Remove 'v' prefix for Helm version and export it
+          HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
+          helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
+          helm push alert2dash-operator-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}          
