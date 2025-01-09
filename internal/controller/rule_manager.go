@@ -51,7 +51,7 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 
 	// Check each dashboard to see if it matches the rule
 	for _, dashboard := range dashboardList.Items {
-		if m.MatchesLabels(rule, dashboard.Spec.MetadataLabelSelector) {
+		if m.MatchesLabels(rule, &dashboard) {
 			m.log.V(1).Info("Found affected dashboard",
 				"dashboard", dashboard.Name,
 				"rule", rule.Name)
@@ -62,8 +62,46 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 	return affectedDashboards, nil
 }
 
-func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool {
+func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool {
+	// Check metadata labels (only check against rule's metadata labels)
+	if !matchLabelSelector(rule, dashboard.Spec.MetadataLabelSelector, true) {
+		return false
+	}
+
+	// Check rule labels (check against rule's metadata, group, and alert labels)
+	if !matchLabelSelector(rule, dashboard.Spec.RuleLabelSelector, false) {
+		return false
+	}
+
+	return true
+}
+
+// matchLabelSelector checks if the rule matches the given selector
+// metadataOnly: if true, only checks resource metadata labels; if false, checks rule and group labels too
+func matchLabelSelector(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector, metadataOnly bool) bool {
 	if selector == nil {
+		return true
+	}
+
+	// For metadata-only checks, only use rule.Labels
+	if metadataOnly {
+		// Check matchLabels
+		for k, v := range selector.MatchLabels {
+			if resourceVal, ok := rule.Labels[k]; !ok || resourceVal != v {
+				return false
+			}
+		}
+
+		// Check matchExpressions
+		for _, expr := range selector.MatchExpressions {
+			switch expr.Operator {
+			case metav1.LabelSelectorOpExists:
+				if _, ok := rule.Labels[expr.Key]; !ok {
+					return false
+				}
+			}
+			// Add other operators as needed
+		}
 		return true
 	}
 
@@ -75,6 +113,11 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, se
 				return false
 			}
 			continue
+		}
+
+		// If we're only checking metadata labels and we didn't find a match, fail
+		if metadataOnly {
+			return false
 		}
 
 		// Check labels in rule groups and alert rules
@@ -112,8 +155,13 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, se
 				exists = true
 			}
 
-			// Check labels in rule groups and alert rules
-			if !exists {
+			// If not found in metadata and we're only checking metadata, fail
+			if !exists && metadataOnly {
+				return false
+			}
+
+			// Check labels in rule groups and alert rules if not metadata only
+			if !exists && !metadataOnly {
 				for _, group := range rule.Spec.Groups {
 					// Check group labels
 					if _, ok := group.Labels[expr.Key]; ok {
@@ -137,6 +185,7 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, se
 				return false
 			}
 		}
+		// Add other operators as needed
 	}
 
 	return true
