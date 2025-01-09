@@ -71,7 +71,7 @@ jobs:
           
       - name: Publish Helm charts
         run: |
-          cd alert2dash
+          cd alert2dash-operator
           yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
           yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
 
