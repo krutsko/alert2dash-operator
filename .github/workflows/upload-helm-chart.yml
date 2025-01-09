@@ -43,10 +43,10 @@ jobs:
           
       - name: Publish Helm charts
         run: |
-          cd alert2dash
+          cd alert2dash-operator
           yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
           yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
-
+          
           # Remove 'v' prefix for Helm version and export it
           HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
