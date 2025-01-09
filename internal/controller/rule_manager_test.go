@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -69,7 +68,7 @@ func TestRuleManager(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: monitoringv1alpha1.AlertDashboardSpec{
-			RuleSelector: &metav1.LabelSelector{
+			MetadataLabelSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": "test",
 				},
@@ -83,14 +82,20 @@ func TestRuleManager(t *testing.T) {
 
 	t.Run("GetPrometheusRules", func(t *testing.T) {
 		// Test with non-existent label selector
-		nonExistentSelector := labels.SelectorFromSet(labels.Set{"non": "existent"})
-		rules, err := manager.GetPrometheusRules(ctx, "default", nonExistentSelector)
+		dashboardWithNonExistentSelector := dashboard.DeepCopy()
+		dashboardWithNonExistentSelector.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchLabels: map[string]string{"non": "existent"},
+		}
+		rules, err := manager.GetPrometheusRules(ctx, dashboardWithNonExistentSelector)
 		require.NoError(t, err)
 		assert.Empty(t, rules)
 
 		// Test with valid selector
-		selector := labels.SelectorFromSet(labels.Set{"app": "test"})
-		rules, err = manager.GetPrometheusRules(ctx, "default", selector)
+		dashboardWithValidSelector := dashboard.DeepCopy()
+		dashboardWithValidSelector.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchLabels: map[string]string{"app": "test"},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithValidSelector)
 		require.NoError(t, err)
 		assert.Len(t, rules, 1)
 		assert.Equal(t, "test-rule", rules[0].Name)

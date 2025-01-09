@@ -18,11 +18,11 @@ type defaultRuleManager struct {
 	log    logr.Logger
 }
 
-func (m *defaultRuleManager) GetPrometheusRules(ctx context.Context, namespace string, labelSelector labels.Selector) ([]monitoringv1.PrometheusRule, error) {
+func (m *defaultRuleManager) GetPrometheusRules(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) ([]monitoringv1.PrometheusRule, error) {
 	ruleList := &monitoringv1.PrometheusRuleList{}
 	listOpts := &client.ListOptions{
-		Namespace:     namespace,
-		LabelSelector: labelSelector,
+		Namespace:     dashboard.Namespace,
+		LabelSelector: labels.SelectorFromSet(dashboard.Spec.MetadataLabelSelector.MatchLabels),
 	}
 
 	if err := m.client.List(ctx, ruleList, listOpts); err != nil {
@@ -51,7 +51,7 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 
 	// Check each dashboard to see if it matches the rule
 	for _, dashboard := range dashboardList.Items {
-		if m.MatchesLabels(rule, dashboard.Spec.RuleSelector) {
+		if m.MatchesLabels(rule, dashboard.Spec.MetadataLabelSelector) {
 			m.log.V(1).Info("Found affected dashboard",
 				"dashboard", dashboard.Name,
 				"rule", rule.Name)

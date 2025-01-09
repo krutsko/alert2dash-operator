@@ -107,10 +107,16 @@ var _ = Describe("AlertDashboard Controller", func() {
 					Namespace: "default",
 				},
 				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					RuleSelector: &metav1.LabelSelector{
+					MetadataLabelSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"app":                "test-app",
 							"generate-dashboard": "true",
+						},
+					},
+					RuleLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"team": "dreamteam",
+							"tier": "backend",
 						},
 					},
 					DashboardConfig: monitoringv1alpha1.DashboardConfig{
@@ -247,7 +253,12 @@ var _ = Describe("AlertDashboard Controller", func() {
 					Namespace: "default",
 				},
 				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					RuleSelector: &metav1.LabelSelector{
+					MetadataLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"non-existent": "label",
+						},
+					},
+					RuleLabelSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"non-existent": "label",
 						},
@@ -279,6 +290,138 @@ var _ = Describe("AlertDashboard Controller", func() {
 			}, configMap)
 			Expect(err).To(HaveOccurred())
 			Expect(kuberr.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should handle excluded rules correctly", func() {
+			By("creating test PrometheusRule with exclude label")
+			const testResourceWithExcludedRule = "test-resource-with-excluded-rule"
+			By("creating the custom resource without matching PrometheusRules")
+			alertDashboardWithExcludedRule := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testResourceWithExcludedRule,
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					MetadataLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app":                "test-app",
+							"generate-dashboard": "true",
+						},
+					},
+					RuleLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "test-app",
+						},
+					},
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, alertDashboardWithExcludedRule)).To(Succeed())
+			excludedRules := &monitoringv1.PrometheusRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "excluded-rule",
+					Namespace: "default",
+					Labels:    map[string]string{"app": "test-app", "generate-dashboard": "true"},
+				},
+				Spec: monitoringv1.PrometheusRuleSpec{
+					Groups: []monitoringv1.RuleGroup{
+						{
+							Name: "excluded.rules.group",
+							Rules: []monitoringv1.Rule{
+								{
+									Alert: "ExcludedAlert1",
+									Expr:  intstr.FromString("vector(1)"),
+									Labels: map[string]string{
+										"severity": "warning", // no required labels
+									},
+								},
+								{
+									Alert: "ExcludedAlert2",
+									Expr:  intstr.FromString("vector(1)"),
+									Labels: map[string]string{
+										"app":                     "test-app",
+										"alert2dash-exclude-rule": "true", // This is the label that should exlude the rule from the dashboard
+									},
+								},
+								{
+									Alert: "GoodAlert",
+									Expr:  intstr.FromString("vector(1)"),
+									Labels: map[string]string{
+										"severity": "warning",
+										"app":      "test-app",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, excludedRules)).To(Succeed())
+
+			By("triggering a reconciliation")
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      testResourceWithExcludedRule,
+					Namespace: "default",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for finalizer to be added and verify ConfigMap creation
+			Eventually(func() bool {
+				alertDashboardWithExcludedRule := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      testResourceWithExcludedRule,
+					Namespace: "default",
+				}, alertDashboardWithExcludedRule)
+				if err != nil {
+					return false
+				}
+				return hasDashboardFinalizer(alertDashboardWithExcludedRule.Finalizers)
+			}, "10s", "1s").Should(BeTrue())
+
+			// Second reconciliation - should process dashboard
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      testResourceWithExcludedRule,
+					Namespace: "default",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the ConfigMap doesn't contain excluded alert")
+			configMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + testResourceWithExcludedRule,
+					Namespace: "default",
+				}, configMap)
+			}, "10s", "1s").Should(Succeed())
+
+			dashboardJson := configMap.Data[testResourceWithExcludedRule+".json"]
+
+			// Verify panel exclusion
+			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert1"`))
+			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert2"`))
+
+			// Verify included panel
+			Expect(dashboardJson).To(ContainSubstring(`"title": "GoodAlert"`))
+			Expect(dashboardJson).To(ContainSubstring(`"expr": "vector(1)"`))
+
+			By("cleaning up the excluded rule")
+			err = handleResourceDeletion(ctx, k8sClient, excludedRules, types.NamespacedName{
+				Name:      "excluded-rule",
+				Namespace: "default",
+			})
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		AfterEach(func() {

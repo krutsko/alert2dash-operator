@@ -35,7 +35,7 @@ type DashboardGenerator interface {
 
 // RuleManager handles PrometheusRule operations
 type RuleManager interface {
-	GetPrometheusRules(ctx context.Context, namespace string, labelSelector labels.Selector) ([]monitoringv1.PrometheusRule, error)
+	GetPrometheusRules(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) ([]monitoringv1.PrometheusRule, error)
 	FindAffectedDashboards(ctx context.Context, rule *monitoringv1.PrometheusRule) ([]monitoringv1alpha1.AlertDashboard, error)
 	MatchesLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool
 }
@@ -172,12 +172,25 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 
 	// Get matching PrometheusRules
 	log.Info("Fetching matching PrometheusRules")
-	rules, err := r.ruleManager.GetPrometheusRules(ctx, dashboard.Namespace,
-		labels.Set{"generate-dashboard": "true"}.AsSelector())
+	// todo delete this
+	// selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleSelector)
+	// if err != nil {
+	// 	return fmt.Errorf("invalid rule selector: %w", err)
+	// }
+	rules, err := r.ruleManager.GetPrometheusRules(ctx, dashboard)
 	if err != nil {
 		log.Error(err, "Failed to list PrometheusRules")
 		return fmt.Errorf("failed to list PrometheusRules: %w", err)
 	}
+
+	// Filter out rules with alert2dash-exclude-rule label
+	// filteredRules := make([]monitoringv1.PrometheusRule, 0, len(rules))
+	// for _, rule := range rules {
+	// 	if _, excluded := rule.Labels["alert2dash-exclude-rule"]; !excluded {
+	// 		filteredRules = append(filteredRules, rule)
+	// 	}
+	// }
+	// rules = filteredRules
 
 	if len(rules) == 0 {
 		log.Info("No matching PrometheusRules found")
@@ -187,7 +200,7 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 
 	// Extract metrics from rules
 	log.Info("Extracting metrics from rules")
-	metrics := r.extractMetrics(rules)
+	metrics := r.extractMetrics(dashboard, rules)
 	log.Info("Extracted metrics", "count", len(metrics))
 
 	// Generate dashboard content
@@ -248,13 +261,24 @@ func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context
 }
 
 // extractMetrics extracts metrics information from PrometheusRules
-func (r *AlertDashboardReconciler) extractMetrics(rules []monitoringv1.PrometheusRule) []model.AlertMetric {
+func (r *AlertDashboardReconciler) extractMetrics(dashboard *monitoringv1alpha1.AlertDashboard, prometheusRules []monitoringv1.PrometheusRule) []model.AlertMetric {
 	var metrics []model.AlertMetric
 
-	for _, rule := range rules {
+	for _, rule := range prometheusRules {
 		for _, group := range rule.Spec.Groups {
 			for _, alertRule := range group.Rules {
 				if alertRule.Alert != "" {
+					// Skip if alert doesn't match dashboard's RuleLabelSelector
+					if dashboard.Spec.RuleLabelSelector != nil {
+						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
+						if err == nil && !selector.Matches(labels.Set(alertRule.Labels)) {
+							continue
+						}
+					}
+					// skip if label = 'alert2dash-exclude-rule'
+					if _, excluded := alertRule.Labels["alert2dash-exclude-rule"]; excluded {
+						continue
+					}
 					baseQueries := r.extractBaseQuery(&alertRule)
 					for _, query := range baseQueries {
 						metric := model.AlertMetric{
@@ -354,7 +378,8 @@ func (p *prometheusRulePredicate) Create(e event.CreateEvent) bool {
 	if !ok {
 		return false
 	}
-	return rule.Labels["generate-dashboard"] == "true"
+	_, hasExcludeLabel := rule.Labels["alert2dash-exclude-rule"]
+	return !hasExcludeLabel
 }
 
 func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
@@ -364,8 +389,9 @@ func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
 		return false
 	}
 
-	// Only trigger if the rule has the required label and specs have changed
-	if newRule.Labels["generate-dashboard"] != "true" {
+	// Skip if the rule has the exclude label
+	_, hasExcludeLabel := newRule.Labels["alert2dash-exclude-rule"]
+	if hasExcludeLabel {
 		return false
 	}
 
