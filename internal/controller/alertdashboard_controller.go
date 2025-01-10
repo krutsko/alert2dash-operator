@@ -162,6 +162,20 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 
 	if len(rules) == 0 {
 		log.Info("No matching PrometheusRules found")
+		// Check if dashboard previously had rules
+		if len(dashboard.Status.ObservedRules) > 0 {
+			log.Info("Cleaning up dashboard as it no longer has matching rules")
+			// Create empty dashboard or delete existing ConfigMap
+			if err := r.configMapManager.CreateOrUpdateConfigMap(ctx, dashboard, []byte{}); err != nil {
+				log.Error(err, "Failed to update ConfigMap")
+				return fmt.Errorf("failed to update ConfigMap: %w", err)
+			}
+			// Update status to reflect no rules
+			if err := r.updateDashboardStatus(ctx, dashboard, []monitoringv1.PrometheusRule{}); err != nil {
+				log.Error(err, "Failed to update dashboard status")
+				return fmt.Errorf("failed to update status: %w", err)
+			}
+		}
 		return nil
 	}
 	log.Info("Found matching PrometheusRules", "count", len(rules))
@@ -301,11 +315,24 @@ func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []stri
 		switch e.Op {
 		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR), parser.ItemType(parser.LUNLESS):
 			// Skip logical operators entirely
-			return []string{}
+			return []string{""}
 		default:
-			// For comparison operators, just take the left side
+			// For comparison operators, check if either side is a scalar
 			if isComparisonOperator(e.Op) {
-				results = append(results, sanitizeExpr(e.LHS.String()))
+				_, lhsIsScalar := e.LHS.(*parser.NumberLiteral)
+				_, rhsIsScalar := e.RHS.(*parser.NumberLiteral)
+
+				if !lhsIsScalar && !rhsIsScalar {
+					// Neither side is a scalar, skip this query
+					return []string{""}
+				}
+
+				// Return the non-scalar side
+				if rhsIsScalar {
+					results = append(results, sanitizeExpr(e.LHS.String()))
+				} else {
+					results = append(results, sanitizeExpr(e.RHS.String()))
+				}
 			} else {
 				// For other operators (like arithmetic), keep the whole expression
 				results = append(results, sanitizeExpr(parsedExpr.String()))
@@ -355,15 +382,6 @@ func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
 	newRule, ok2 := e.ObjectNew.(*monitoringv1.PrometheusRule)
 	if !ok1 || !ok2 {
 		return false
-	}
-
-	// Skip if the rule has the exclude label
-	for _, group := range newRule.Spec.Groups {
-		for _, rule := range group.Rules {
-			if _, hasExcludeLabel := rule.Labels[constants.LabelExcludeRule]; hasExcludeLabel {
-				return false
-			}
-		}
 	}
 
 	// Only trigger updates if the spec changed

@@ -63,6 +63,29 @@ func TestExtractBaseQuery(t *testing.T) {
 		},
 	}
 
+	// Complex queries with non-scalar right-hand side
+	complexRightHandQueries := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "comparison with calculated value",
+			expr:     `sum(metric_a) < sum(metric_b)`,
+			expected: []string{""},
+		},
+		{
+			name:     "comparison with complex calculation",
+			expr:     `sum(up) < (count(up) + 1) / 2`,
+			expected: []string{""},
+		},
+		{
+			name:     "etcd insufficient members query",
+			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
+			expected: []string{""},
+		},
+	}
+
 	// Unsupported queries
 	unsupportedQueries := []struct {
 		name     string
@@ -77,6 +100,44 @@ func TestExtractBaseQuery(t *testing.T) {
 		{
 			name:     "query with unless operator",
 			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
+			expected: []string{""},
+		},
+		{
+			name:     "etcd insufficient members query",
+			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
+			expected: []string{""},
+		},
+	}
+
+	// Scalar comparison queries
+	scalarComparisonQueries := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "scalar on right side",
+			expr:     "node_memory_MemAvailable_bytes < 1000000",
+			expected: []string{"node_memory_MemAvailable_bytes"},
+		},
+		{
+			name:     "scalar on left side",
+			expr:     "100 < rate(http_requests_total[5m])",
+			expected: []string{"rate(http_requests_total[5m])"},
+		},
+		{
+			name:     "both sides non-scalar",
+			expr:     "rate(metric_a[5m]) > rate(metric_b[5m])",
+			expected: []string{""},
+		},
+		{
+			name:     "both sides scalar",
+			expr:     "100 < 200",
+			expected: []string{""},
+		},
+		{
+			name:     "complex right side",
+			expr:     "metric_a > sum(metric_b) / count(metric_b)",
 			expected: []string{""},
 		},
 	}
@@ -100,8 +161,24 @@ func TestExtractBaseQuery(t *testing.T) {
 		}
 	})
 
+	t.Run("Complex Right-Hand Queries", func(t *testing.T) {
+		for _, tt := range complexRightHandQueries {
+			t.Run(tt.name, func(t *testing.T) {
+				runQueryTest(t, r, tt)
+			})
+		}
+	})
+
 	t.Run("Unsupported Queries", func(t *testing.T) {
 		for _, tt := range unsupportedQueries {
+			t.Run(tt.name, func(t *testing.T) {
+				runQueryTest(t, r, tt)
+			})
+		}
+	})
+
+	t.Run("Scalar Comparison Queries", func(t *testing.T) {
+		for _, tt := range scalarComparisonQueries {
 			t.Run(tt.name, func(t *testing.T) {
 				runQueryTest(t, r, tt)
 			})
