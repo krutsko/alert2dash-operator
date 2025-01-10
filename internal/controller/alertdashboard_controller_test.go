@@ -7,6 +7,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -427,6 +428,133 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
+		It("should update dashboard when rule is marked as excluded", func() {
+			By("triggering initial reconciliation")
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			// First reconciliation - should add finalizer
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Second reconciliation - should process dashboard
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying initial dashboard contains both alerts")
+			configMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap)
+			}, "10s", "1s").Should(Succeed())
+
+			initialDashboardJson := configMap.Data[resourceName+".json"]
+			Expect(initialDashboardJson).To(ContainSubstring(`"title": "HighErrorRate"`))
+			Expect(initialDashboardJson).To(ContainSubstring(`"title": "HighLatency"`))
+
+			By("marking one rule as excluded")
+			prometheusRule := &monitoringv1.PrometheusRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "test-rule",
+				Namespace: "default",
+			}, prometheusRule)).To(Succeed())
+
+			// Add exclude label to the first rule
+			prometheusRule.Spec.Groups[0].Rules[0].Labels[constants.LabelExcludeRule] = "true"
+			Expect(k8sClient.Update(ctx, prometheusRule)).To(Succeed())
+
+			By("triggering reconciliation after rule exclusion")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying dashboard was updated to exclude marked rule")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap); err != nil {
+					return false
+				}
+				updatedDashboardJson := configMap.Data[resourceName+".json"]
+				return !strings.Contains(updatedDashboardJson, `"title": "HighErrorRate"`) &&
+					strings.Contains(updatedDashboardJson, `"title": "HighLatency"`)
+			}, "10s", "1s").Should(BeTrue(), "Dashboard should only contain non-excluded rule")
+		})
+
+		It("should update dashboard when PrometheusRule metadata labels change", func() {
+			By("triggering initial reconciliation")
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+			// First reconciliation - should add finalizer
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Second reconciliation - should process dashboard
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying initial dashboard exists")
+			configMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap)
+			}, "10s", "1s").Should(Succeed())
+
+			By("modifying PrometheusRule metadata labels")
+			modifiedRule := &monitoringv1.PrometheusRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "test-rule",
+				Namespace: "default",
+			}, modifiedRule)).To(Succeed())
+
+			// Change a relevant metadata label that should trigger an update
+			modifiedRule.Labels["generate-dashboard"] = "false"
+			Expect(k8sClient.Update(ctx, modifiedRule)).To(Succeed())
+
+			By("triggering reconciliation after label change")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying dashboard was updated")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap); err != nil {
+					return false
+				}
+
+				dashboardJson := configMap.Data[resourceName+".json"]
+				return !strings.Contains(dashboardJson, `"title": "HighErrorRate"`) &&
+					!strings.Contains(dashboardJson, `"title": "HighLatency"`)
+			}, "10s", "1s").Should(BeTrue(), "Dashboard should not contain any panel titles after removing generate-dashboard label")
+		})
+
 		AfterEach(func() {
 			By("cleaning up all PrometheusRules")
 			prometheusRule := &monitoringv1.PrometheusRule{}
@@ -608,26 +736,6 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			requests := reconciler.handlePrometheusRuleEvent(ctx, modifiedRule)
 			Expect(requests).To(HaveLen(1))
 			Expect(requests[0].Name).To(Equal(resourceName))
-		})
-
-		It("should not trigger updates for excluded rules", func() {
-			By("adding exclude label to rule")
-			modifiedRule := baseRule.DeepCopy()
-
-			modifiedRule.Spec.Groups[0].Rules[0].Labels[constants.LabelExcludeRule] = "true"
-
-			updateEvent := event.UpdateEvent{
-				ObjectOld: baseRule,
-				ObjectNew: modifiedRule,
-			}
-
-			predicate := &prometheusRulePredicate{}
-			By("verifying predicate blocks the update")
-			Expect(predicate.Update(updateEvent)).To(BeFalse(), "Predicate should return false for excluded rules")
-
-			// If predicate returns false, the controller would not process the event
-			// So we should not test handlePrometheusRuleEvent
-			By("skipping event handling as predicate returned false")
 		})
 
 		It("should not trigger updates for metadata-only changes", func() {
