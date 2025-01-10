@@ -44,7 +44,7 @@ func (i *embedImporter) Import(importedFrom, importedPath string) (contents json
 	return jsonnet.MakeContents(string(content)), importedPath, nil
 }
 
-func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.AlertMetric) ([]byte, error) {
+func (g *defaultDashboardGenerator) GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.GrafanaPanelQuery) ([]byte, error) {
 	g.log.Info("Generating dashboard", "name", dashboard.Name)
 	var err error
 

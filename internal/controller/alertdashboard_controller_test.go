@@ -25,6 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/constants"
+	"github.com/krutsko/alert2dash-operator/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -149,7 +151,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return false
 				}
-				return hasDashboardFinalizer(dashboard.Finalizers)
+				return utils.HasString(dashboard.Finalizers, dashboardFinalizer)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Second reconciliation - should process dashboard
@@ -168,7 +170,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return err
 				}
-				if configMap.Labels["grafana_dashboard"] != "1" {
+				if configMap.Labels[constants.LabelGrafanaDashboard] != "1" {
 					return fmt.Errorf("expected grafana_dashboard label to be 1")
 				}
 				return nil
@@ -180,7 +182,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				Namespace: "default",
 			}, configMap)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(configMap.Labels["grafana_dashboard"]).To(Equal("1"))
+			Expect(configMap.Labels[constants.LabelGrafanaDashboard]).To(Equal("1"))
 
 			By("verifying the dashboard JSON structure and content")
 			dashboardJson := configMap.Data[resourceName+".json"]
@@ -212,7 +214,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return false
 				}
-				return hasDashboardFinalizer(dashboard.Finalizers)
+				return utils.HasString(dashboard.Finalizers, dashboardFinalizer)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Second reconciliation - should process dashboard
@@ -342,8 +344,8 @@ var _ = Describe("AlertDashboard Controller", func() {
 									Alert: "ExcludedAlert2",
 									Expr:  intstr.FromString("vector(1)"),
 									Labels: map[string]string{
-										"app":                     "test-app",
-										"alert2dash-exclude-rule": "true", // This is the label that should exlude the rule from the dashboard
+										"app":                      "test-app",
+										constants.LabelExcludeRule: "true", // This is the label that should exlude the rule from the dashboard
 									},
 								},
 								{
@@ -386,7 +388,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 				if err != nil {
 					return false
 				}
-				return hasDashboardFinalizer(alertDashboardWithExcludedRule.Finalizers)
+				return utils.HasString(alertDashboardWithExcludedRule.Finalizers, dashboardFinalizer)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Second reconciliation - should process dashboard
@@ -611,7 +613,8 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 		It("should not trigger updates for excluded rules", func() {
 			By("adding exclude label to rule")
 			modifiedRule := baseRule.DeepCopy()
-			modifiedRule.Spec.Groups[0].Rules[0].Labels["alert2dash-exclude-rule"] = "true"
+
+			modifiedRule.Spec.Groups[0].Rules[0].Labels[constants.LabelExcludeRule] = "true"
 
 			updateEvent := event.UpdateEvent{
 				ObjectOld: baseRule,

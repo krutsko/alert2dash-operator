@@ -12,6 +12,7 @@ import (
 	"github.com/krutsko/alert2dash-operator/internal/constants"
 	templates "github.com/krutsko/alert2dash-operator/internal/embedfs"
 	"github.com/krutsko/alert2dash-operator/internal/model"
+	"github.com/krutsko/alert2dash-operator/internal/utils"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/prometheus/prometheus/promql/parser"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,7 @@ import (
 
 // DashboardGenerator handles dashboard template processing and generation
 type DashboardGenerator interface {
-	GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.AlertMetric) ([]byte, error)
+	GenerateDashboard(dashboard *monitoringv1alpha1.AlertDashboard, metrics []model.GrafanaPanelQuery) ([]byte, error)
 }
 
 // RuleManager handles PrometheusRule operations
@@ -101,7 +102,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Add finalizer if it doesn't exist
-	if !hasDashboardFinalizer(alertDashboard.Finalizers) {
+	if !utils.HasString(alertDashboard.Finalizers, dashboardFinalizer) {
 		alertDashboard.Finalizers = append(alertDashboard.Finalizers, dashboardFinalizer)
 		if err := r.Update(ctx, alertDashboard); err != nil {
 			log.Error(err, "Failed to add finalizer")
@@ -124,7 +125,7 @@ func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard
 	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
 
 	// Check if finalizer is present
-	if !hasDashboardFinalizer(dashboard.Finalizers) {
+	if !utils.HasString(dashboard.Finalizers, dashboardFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
@@ -135,33 +136,13 @@ func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard
 	}
 
 	// Remove finalizer
-	dashboard.Finalizers = removeString(dashboard.Finalizers, dashboardFinalizer)
+	dashboard.Finalizers = utils.RemoveString(dashboard.Finalizers, dashboardFinalizer)
 	if err := r.Update(ctx, dashboard); err != nil {
 		log.Error(err, "Failed to remove finalizer")
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// Helper functions
-func hasDashboardFinalizer(slice []string) bool {
-	for _, item := range slice {
-		if item == dashboardFinalizer {
-			return true
-		}
-	}
-	return false
-}
-
-func removeString(slice []string, s string) []string {
-	result := make([]string, 0, len(slice))
-	for _, item := range slice {
-		if item != s {
-			result = append(result, item)
-		}
-	}
-	return result
 }
 
 // processDashboard handles the main dashboard processing logic
@@ -173,25 +154,11 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 
 	// Get matching PrometheusRules
 	log.Info("Fetching matching PrometheusRules")
-	// todo delete this
-	// selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleSelector)
-	// if err != nil {
-	// 	return fmt.Errorf("invalid rule selector: %w", err)
-	// }
 	rules, err := r.ruleManager.GetPrometheusRules(ctx, dashboard)
 	if err != nil {
 		log.Error(err, "Failed to list PrometheusRules")
 		return fmt.Errorf("failed to list PrometheusRules: %w", err)
 	}
-
-	// Filter out rules with alert2dash-exclude-rule label
-	// filteredRules := make([]monitoringv1.PrometheusRule, 0, len(rules))
-	// for _, rule := range rules {
-	// 	if _, excluded := rule.Labels["alert2dash-exclude-rule"]; !excluded {
-	// 		filteredRules = append(filteredRules, rule)
-	// 	}
-	// }
-	// rules = filteredRules
 
 	if len(rules) == 0 {
 		log.Info("No matching PrometheusRules found")
@@ -199,14 +166,14 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	}
 	log.Info("Found matching PrometheusRules", "count", len(rules))
 
-	// Extract metrics from rules
-	log.Info("Extracting metrics from rules")
-	metrics := r.extractMetrics(dashboard, rules)
-	log.Info("Extracted metrics", "count", len(metrics))
+	// Extract grafana panel queries from rules
+	log.Info("Extracting grafana panel queries from rules")
+	grafanaPanelQueries := r.extractGrafanaPanelQueries(dashboard, rules)
+	log.Info("Extracted grafana panel queries", "count", len(grafanaPanelQueries))
 
 	// Generate dashboard content
 	log.Info("Generating dashboard content")
-	content, err := r.dashboardGen.GenerateDashboard(dashboard, metrics)
+	content, err := r.dashboardGen.GenerateDashboard(dashboard, grafanaPanelQueries)
 	if err != nil {
 		log.Error(err, "Failed to generate dashboard content")
 		return fmt.Errorf("failed to generate dashboard: %w", err)
@@ -238,8 +205,8 @@ func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context
 	listOpts := []client.ListOption{
 		client.InNamespace(dashboard.Namespace),
 		client.MatchingLabels{
-			"app":       "alert2dash",
-			"dashboard": dashboard.Name,
+			constants.LabelGrafanaDashboard: "1",
+			constants.LabelDashboardName:    dashboard.Name,
 		},
 	}
 
@@ -261,39 +228,39 @@ func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context
 	return nil
 }
 
-// extractMetrics extracts metrics information from PrometheusRules
-func (r *AlertDashboardReconciler) extractMetrics(dashboard *monitoringv1alpha1.AlertDashboard, prometheusRules []monitoringv1.PrometheusRule) []model.AlertMetric {
-	var metrics []model.AlertMetric
+// extractGrafanaPanelQueries extracts metrics information from PrometheusRules
+func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitoringv1alpha1.AlertDashboard, prometheusRules []monitoringv1.PrometheusRule) []model.GrafanaPanelQuery {
+	var grafanaPanelQueries []model.GrafanaPanelQuery
 
 	for _, rule := range prometheusRules {
 		for _, group := range rule.Spec.Groups {
-			for _, alertRule := range group.Rules {
-				if alertRule.Alert != "" {
-					// Skip if alert doesn't match dashboard's RuleLabelSelector
+			for _, rule := range group.Rules {
+				if rule.Alert != "" {
+					// Skip if rule doesn't match dashboard's RuleLabelSelector
 					if dashboard.Spec.RuleLabelSelector != nil {
 						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
-						if err == nil && !selector.Matches(labels.Set(alertRule.Labels)) {
+						if err == nil && !selector.Matches(labels.Set(rule.Labels)) {
 							continue
 						}
 					}
-					// skip if label = 'alert2dash-exclude-rule'
-					if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
+					// skip rule has exclude label
+					if _, excluded := rule.Labels[constants.LabelExcludeRule]; excluded {
 						continue
 					}
-					baseQueries := r.extractBaseQuery(&alertRule)
-					for _, query := range baseQueries {
-						metric := model.AlertMetric{
-							Name:  alertRule.Alert,
+					promql := r.extractQuery(&rule)
+					for _, query := range promql {
+						metric := model.GrafanaPanelQuery{
+							Name:  rule.Alert,
 							Query: query,
 						}
-						metrics = append(metrics, metric)
+						grafanaPanelQueries = append(grafanaPanelQueries, metric)
 					}
 				}
 			}
 		}
 	}
 
-	return metrics
+	return grafanaPanelQueries
 }
 
 // updateDashboardStatus updates the status of the AlertDashboard resource
@@ -313,7 +280,7 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	return r.Status().Update(ctx, dashboard)
 }
 
-func (r *AlertDashboardReconciler) extractBaseQuery(alert *monitoringv1.Rule) []string {
+func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []string {
 	expr := alert.Expr.String()
 
 	// Parse the PromQL expression

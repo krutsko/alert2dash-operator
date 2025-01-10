@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/constants"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,9 +40,8 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 		if configMap.Labels == nil {
 			configMap.Labels = make(map[string]string)
 		}
-		configMap.Labels["grafana_dashboard"] = "1"
-		configMap.Labels["app"] = "alert2dash"
-		configMap.Labels["dashboard"] = dashboard.Name
+		configMap.Labels[constants.LabelGrafanaDashboard] = "1"
+		configMap.Labels[constants.LabelDashboardName] = dashboard.Name
 
 		// Set or update data
 		if configMap.Data == nil {
@@ -73,7 +73,7 @@ func (m *defaultConfigMapManager) DeleteConfigMap(ctx context.Context, namespace
 	if err := m.client.List(ctx, configMapList, &client.ListOptions{
 		Namespace: namespacedName.Namespace, // Scope to the same namespace
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"grafana_dashboard": "1",
+			constants.LabelGrafanaDashboard: "1",
 		}),
 	}); err != nil {
 		return fmt.Errorf("failed to list ConfigMaps: %w", err)

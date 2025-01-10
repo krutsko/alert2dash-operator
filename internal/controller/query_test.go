@@ -128,7 +128,7 @@ func TestExtractBaseQueryInvalidExpr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractBaseQuery(&monitoringv1.Rule{
+			results := r.extractQuery(&monitoringv1.Rule{
 				Expr: intstr.FromString(tt.expr),
 			})
 			assert.Equal(t, []string{""}, results, "Invalid query should return empty string array")
@@ -142,7 +142,7 @@ func runQueryTest(t *testing.T, r *AlertDashboardReconciler, tt struct {
 	expr     string
 	expected []string
 }) {
-	results := r.extractBaseQuery(&monitoringv1.Rule{
+	results := r.extractQuery(&monitoringv1.Rule{
 		Expr: intstr.FromString(tt.expr),
 	})
 	for i, result := range results {
