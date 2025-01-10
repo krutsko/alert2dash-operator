@@ -315,16 +315,23 @@ func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []stri
 		switch e.Op {
 		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR), parser.ItemType(parser.LUNLESS):
 			// Skip logical operators entirely
-			return []string{}
+			return []string{""}
 		default:
-			// For comparison operators, check if RHS is a simple scalar
+			// For comparison operators, check if either side is a scalar
 			if isComparisonOperator(e.Op) {
-				// Check if RHS is a simple scalar value
-				if _, ok := e.RHS.(*parser.NumberLiteral); ok {
+				_, lhsIsScalar := e.LHS.(*parser.NumberLiteral)
+				_, rhsIsScalar := e.RHS.(*parser.NumberLiteral)
+
+				if !lhsIsScalar && !rhsIsScalar {
+					// Neither side is a scalar, skip this query
+					return []string{""}
+				}
+
+				// Return the non-scalar side
+				if rhsIsScalar {
 					results = append(results, sanitizeExpr(e.LHS.String()))
 				} else {
-					// RHS is a complex expression, skip this query
-					return []string{}
+					results = append(results, sanitizeExpr(e.RHS.String()))
 				}
 			} else {
 				// For other operators (like arithmetic), keep the whole expression

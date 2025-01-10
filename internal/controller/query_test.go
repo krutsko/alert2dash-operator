@@ -109,6 +109,39 @@ func TestExtractBaseQuery(t *testing.T) {
 		},
 	}
 
+	// Scalar comparison queries
+	scalarComparisonQueries := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "scalar on right side",
+			expr:     "node_memory_MemAvailable_bytes < 1000000",
+			expected: []string{"node_memory_MemAvailable_bytes"},
+		},
+		{
+			name:     "scalar on left side",
+			expr:     "100 < rate(http_requests_total[5m])",
+			expected: []string{"rate(http_requests_total[5m])"},
+		},
+		{
+			name:     "both sides non-scalar",
+			expr:     "rate(metric_a[5m]) > rate(metric_b[5m])",
+			expected: []string{""},
+		},
+		{
+			name:     "both sides scalar",
+			expr:     "100 < 200",
+			expected: []string{""},
+		},
+		{
+			name:     "complex right side",
+			expr:     "metric_a > sum(metric_b) / count(metric_b)",
+			expected: []string{""},
+		},
+	}
+
 	r := &AlertDashboardReconciler{}
 
 	// Run tests by category
@@ -138,6 +171,14 @@ func TestExtractBaseQuery(t *testing.T) {
 
 	t.Run("Unsupported Queries", func(t *testing.T) {
 		for _, tt := range unsupportedQueries {
+			t.Run(tt.name, func(t *testing.T) {
+				runQueryTest(t, r, tt)
+			})
+		}
+	})
+
+	t.Run("Scalar Comparison Queries", func(t *testing.T) {
+		for _, tt := range scalarComparisonQueries {
 			t.Run(tt.name, func(t *testing.T) {
 				runQueryTest(t, r, tt)
 			})
