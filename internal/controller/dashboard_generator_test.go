@@ -27,7 +27,7 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "test-dashboard"
 
-		metrics := []model.AlertMetric{
+		metrics := []model.GrafanaPanelQuery{
 			{
 				Name:  "TestAlert",
 				Query: "up == 0",
@@ -52,7 +52,7 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "custom-dashboard"
 
-		metrics := []model.AlertMetric{
+		metrics := []model.GrafanaPanelQuery{
 			{
 				Name:  "TestAlert",
 				Query: "up == 0",
@@ -73,7 +73,7 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "invalid-dashboard"
 
-		_, err := generator.GenerateDashboard(dashboard, []model.AlertMetric{})
+		_, err := generator.GenerateDashboard(dashboard, []model.GrafanaPanelQuery{})
 		assert.Error(t, err)
 	})
 
@@ -83,7 +83,7 @@ func TestDashboardGenerator(t *testing.T) {
 		}
 		dashboard.Name = "invalid-metrics"
 
-		generatedDashboard, err := generator.GenerateDashboard(dashboard, []model.AlertMetric{})
+		generatedDashboard, err := generator.GenerateDashboard(dashboard, []model.GrafanaPanelQuery{})
 		require.NoError(t, err)
 		assert.NotEmpty(t, generatedDashboard)
 
@@ -107,7 +107,7 @@ func TestDashboardGenerator(t *testing.T) {
 			},
 		}
 
-		metrics := []model.AlertMetric{
+		metrics := []model.GrafanaPanelQuery{
 			{
 				Name:  "TestAlert",
 				Query: "up == 0",

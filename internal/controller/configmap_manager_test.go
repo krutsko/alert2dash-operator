@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/constants"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -64,7 +65,7 @@ func TestConfigMapManager(t *testing.T) {
 		}, configMap)
 
 		require.NoError(t, err)
-		assert.Equal(t, "1", configMap.Labels["grafana_dashboard"])
+		assert.Equal(t, "1", configMap.Labels[constants.LabelGrafanaDashboard])
 		assert.Equal(t, string(content), configMap.Data["test-dashboard.json"])
 
 		// Test update
@@ -89,9 +90,8 @@ func TestConfigMapManager(t *testing.T) {
 				Name:      "grafana-dashboard-test-dashboard",
 				Namespace: "default",
 				Labels: map[string]string{
-					"grafana_dashboard": "1",
-					"app":               "alert2dash",
-					"dashboard":         "test-dashboard",
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -247,9 +247,8 @@ func TestConfigMapManager(t *testing.T) {
 				Name:      "grafana-dashboard-test-dashboard",
 				Namespace: "default",
 				Labels: map[string]string{
-					"grafana_dashboard": "1",
-					"app":               "alert2dash",
-					"dashboard":         "test-dashboard",
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -268,9 +267,8 @@ func TestConfigMapManager(t *testing.T) {
 				Name:      "grafana-dashboard-test-dashboard-other",
 				Namespace: "default",
 				Labels: map[string]string{
-					"grafana_dashboard": "1",
-					"app":               "alert2dash",
-					"dashboard":         "test-dashboard",
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
