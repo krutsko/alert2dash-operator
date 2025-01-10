@@ -13,8 +13,15 @@ import (
 
 // AlertDashboardSpec defines the desired state of AlertDashboard
 type AlertDashboardSpec struct {
-	// RuleSelector selects PrometheusRules based on labels
-	RuleSelector *metav1.LabelSelector `json:"ruleSelector"`
+	// MetadataLabelSelector is used to select PrometheusRules based on their metadata labels.
+	// This selector filters at the PrometheusRule resource level.
+	// +optional
+	MetadataLabelSelector *metav1.LabelSelector `json:"metadataLabelSelector,omitempty"`
+
+	// RuleLabelSelector defines criteria for selecting specific alert rules within PrometheusRules.
+	// This selector filters individual alert rules based on their labels.
+	// +optional
+	RuleLabelSelector *metav1.LabelSelector `json:"ruleLabelSelector,omitempty"`
 
 	// DashboardConfig defines the Grafana dashboard configuration
 	DashboardConfig DashboardConfig `json:"dashboardConfig"`
