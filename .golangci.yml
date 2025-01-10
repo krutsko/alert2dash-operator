@@ -47,4 +47,4 @@ linters-settings:
     rules:
       - name: comment-spacings
   lll:
-      line-length: 160
+      line-length: 200
