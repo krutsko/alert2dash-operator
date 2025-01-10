@@ -1,18 +1,17 @@
 apiVersion: monitoring.krutsko.com/v1alpha1
 kind: AlertDashboard
 metadata:
-  name: backend-services-2
+  name: all-critical-monitoring
   namespace: monitoring
   labels:
     grafana_dashboard: "1"
 spec:
-  ruleSelector:
+  metadataLabelSelector:
     matchLabels:
-      tier: backend
-    matchExpressions:
-      - key: team
-        operator: Exists
-  # Custom Jsonnet template
+      namespace: monitoring
+  ruleLabelSelector:
+    matchLabels:
+      severity: critical
   customJsonnetTemplate: |
     local grafana = import 'vendor/grafonnet-lib/grafonnet/grafana.libsonnet';
     local dashboard = grafana.dashboard;
@@ -56,17 +55,4 @@ spec:
       )
     )   
   dashboardConfig:
-    title: "Backend Services Alerts Overview 2"
-    folder: "Teams"
     configMapNamePrefix: "grafana-dashboard"
-    panels:
-      alertsOverview: true
-      timeSeriesGraphs: true
-      alertHistory: true
-    variables:
-      - name: team
-        type: query
-        query: "label_values(team)"
-      - name: service
-        type: query
-        query: "label_values(app)"

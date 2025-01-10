@@ -6,21 +6,11 @@ metadata:
   labels:
     grafana_dashboard: "1"
 spec:
-  ruleSelector:
+  metadataLabelSelector:
     matchLabels:
       serviceName: test-service
+  ruleLabelSelector:
+    matchLabels:
+      severity: critical
   dashboardConfig:
-    title: "Backend Services Alerts Overview 2"
-    folder: "Teams"
     configMapNamePrefix: "grafana-dashboard"
-    panels:
-      alertsOverview: true
-      timeSeriesGraphs: true
-      alertHistory: true
-    variables:
-      - name: team
-        type: query
-        query: "label_values(team)"
-      - name: service
-        type: query
-        query: "label_values(app)"
