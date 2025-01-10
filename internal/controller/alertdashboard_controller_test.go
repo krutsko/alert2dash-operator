@@ -613,6 +613,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 		It("should not trigger updates for excluded rules", func() {
 			By("adding exclude label to rule")
 			modifiedRule := baseRule.DeepCopy()
+
 			modifiedRule.Spec.Groups[0].Rules[0].Labels[constants.LabelExcludeRule] = "true"
 
 			updateEvent := event.UpdateEvent{
