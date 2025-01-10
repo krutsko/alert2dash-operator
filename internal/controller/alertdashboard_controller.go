@@ -317,9 +317,15 @@ func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []stri
 			// Skip logical operators entirely
 			return []string{}
 		default:
-			// For comparison operators, just take the left side
+			// For comparison operators, check if RHS is a simple scalar
 			if isComparisonOperator(e.Op) {
-				results = append(results, sanitizeExpr(e.LHS.String()))
+				// Check if RHS is a simple scalar value
+				if _, ok := e.RHS.(*parser.NumberLiteral); ok {
+					results = append(results, sanitizeExpr(e.LHS.String()))
+				} else {
+					// RHS is a complex expression, skip this query
+					return []string{}
+				}
 			} else {
 				// For other operators (like arithmetic), keep the whole expression
 				results = append(results, sanitizeExpr(parsedExpr.String()))

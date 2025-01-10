@@ -63,6 +63,29 @@ func TestExtractBaseQuery(t *testing.T) {
 		},
 	}
 
+	// Complex queries with non-scalar right-hand side
+	complexRightHandQueries := []struct {
+		name     string
+		expr     string
+		expected []string
+	}{
+		{
+			name:     "comparison with calculated value",
+			expr:     `sum(metric_a) < sum(metric_b)`,
+			expected: []string{""},
+		},
+		{
+			name:     "comparison with complex calculation",
+			expr:     `sum(up) < (count(up) + 1) / 2`,
+			expected: []string{""},
+		},
+		{
+			name:     "etcd insufficient members query",
+			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
+			expected: []string{""},
+		},
+	}
+
 	// Unsupported queries
 	unsupportedQueries := []struct {
 		name     string
@@ -77,6 +100,11 @@ func TestExtractBaseQuery(t *testing.T) {
 		{
 			name:     "query with unless operator",
 			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
+			expected: []string{""},
+		},
+		{
+			name:     "etcd insufficient members query",
+			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
 			expected: []string{""},
 		},
 	}
@@ -94,6 +122,14 @@ func TestExtractBaseQuery(t *testing.T) {
 
 	t.Run("Complex Queries", func(t *testing.T) {
 		for _, tt := range complexQueries {
+			t.Run(tt.name, func(t *testing.T) {
+				runQueryTest(t, r, tt)
+			})
+		}
+	})
+
+	t.Run("Complex Right-Hand Queries", func(t *testing.T) {
+		for _, tt := range complexRightHandQueries {
 			t.Run(tt.name, func(t *testing.T) {
 				runQueryTest(t, r, tt)
 			})
