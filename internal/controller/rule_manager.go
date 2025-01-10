@@ -68,6 +68,18 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, da
 		return false
 	}
 
+	// Check for excluded rules
+	for _, group := range rule.Spec.Groups {
+		for _, alertRule := range group.Rules {
+			if _, excluded := alertRule.Labels["alert2dash-exclude-rule"]; excluded {
+				m.log.V(1).Info("Rule is excluded",
+					"rule", rule.Name,
+					"alert", alertRule.Alert)
+				return false
+			}
+		}
+	}
+
 	// Check rule labels (check against rule's metadata, group, and alert labels)
 	if !matchLabelSelector(rule, dashboard.Spec.RuleLabelSelector, false) {
 		return false

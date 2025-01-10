@@ -390,13 +390,22 @@ func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
 	}
 
 	// Skip if the rule has the exclude label
-	_, hasExcludeLabel := newRule.Labels["alert2dash-exclude-rule"]
-	if hasExcludeLabel {
+	for _, group := range newRule.Spec.Groups {
+		for _, rule := range group.Rules {
+			if _, hasExcludeLabel := rule.Labels["alert2dash-exclude-rule"]; hasExcludeLabel {
+				return false
+			}
+		}
+	}
+
+	// Only trigger updates if the spec changed
+	// Ignore metadata-only changes (like resourceVersion, annotations, etc.)
+	specChanged := !reflect.DeepEqual(oldRule.Spec, newRule.Spec)
+	if !specChanged {
 		return false
 	}
 
-	// Compare the specs to see if anything relevant changed
-	return !reflect.DeepEqual(oldRule.Spec, newRule.Spec)
+	return true
 }
 
 // SetupWithManager sets up the controller with the Manager
