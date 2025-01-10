@@ -102,13 +102,22 @@ func TestRuleManager(t *testing.T) {
 	require.NoError(t, fakeClient.Create(ctx, dashboard))
 
 	t.Run("GetPrometheusRules", func(t *testing.T) {
+		t.Log("Testing GetPrometheusRules with nil selector")
+		// Test with nil selector
+		dashboardWithNilSelector := dashboard.DeepCopy()
+		dashboardWithNilSelector.Spec.MetadataLabelSelector = nil
+		rules, err := manager.GetPrometheusRules(ctx, dashboardWithNilSelector)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should return all rules when selector is nil")
+		assert.Equal(t, "test-rule", rules[0].Name)
+
 		t.Log("Testing GetPrometheusRules with non-existent selector")
 		// Test with non-existent label selector
 		dashboardWithNonExistentSelector := dashboard.DeepCopy()
 		dashboardWithNonExistentSelector.Spec.MetadataLabelSelector = &metav1.LabelSelector{
 			MatchLabels: map[string]string{"non": "existent"},
 		}
-		rules, err := manager.GetPrometheusRules(ctx, dashboardWithNonExistentSelector)
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithNonExistentSelector)
 		require.NoError(t, err)
 		assert.Empty(t, rules)
 
