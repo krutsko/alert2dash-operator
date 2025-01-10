@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/constants"
 	templates "github.com/krutsko/alert2dash-operator/internal/embedfs"
 	"github.com/krutsko/alert2dash-operator/internal/model"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -276,7 +277,7 @@ func (r *AlertDashboardReconciler) extractMetrics(dashboard *monitoringv1alpha1.
 						}
 					}
 					// skip if label = 'alert2dash-exclude-rule'
-					if _, excluded := alertRule.Labels["alert2dash-exclude-rule"]; excluded {
+					if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
 						continue
 					}
 					baseQueries := r.extractBaseQuery(&alertRule)
@@ -378,7 +379,7 @@ func (p *prometheusRulePredicate) Create(e event.CreateEvent) bool {
 	if !ok {
 		return false
 	}
-	_, hasExcludeLabel := rule.Labels["alert2dash-exclude-rule"]
+	_, hasExcludeLabel := rule.Labels[constants.LabelExcludeRule]
 	return !hasExcludeLabel
 }
 
@@ -392,7 +393,7 @@ func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
 	// Skip if the rule has the exclude label
 	for _, group := range newRule.Spec.Groups {
 		for _, rule := range group.Rules {
-			if _, hasExcludeLabel := rule.Labels["alert2dash-exclude-rule"]; hasExcludeLabel {
+			if _, hasExcludeLabel := rule.Labels[constants.LabelExcludeRule]; hasExcludeLabel {
 				return false
 			}
 		}
@@ -401,11 +402,7 @@ func (p *prometheusRulePredicate) Update(e event.UpdateEvent) bool {
 	// Only trigger updates if the spec changed
 	// Ignore metadata-only changes (like resourceVersion, annotations, etc.)
 	specChanged := !reflect.DeepEqual(oldRule.Spec, newRule.Spec)
-	if !specChanged {
-		return false
-	}
-
-	return true
+	return specChanged
 }
 
 // SetupWithManager sets up the controller with the Manager

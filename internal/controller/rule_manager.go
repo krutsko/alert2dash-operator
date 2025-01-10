@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
+	"github.com/krutsko/alert2dash-operator/internal/constants"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -71,7 +72,7 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, da
 	// Check for excluded rules
 	for _, group := range rule.Spec.Groups {
 		for _, alertRule := range group.Rules {
-			if _, excluded := alertRule.Labels["alert2dash-exclude-rule"]; excluded {
+			if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
 				m.log.V(1).Info("Rule is excluded",
 					"rule", rule.Name,
 					"alert", alertRule.Alert)
@@ -81,123 +82,65 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, da
 	}
 
 	// Check rule labels (check against rule's metadata, group, and alert labels)
-	if !matchLabelSelector(rule, dashboard.Spec.RuleLabelSelector, false) {
-		return false
-	}
-
-	return true
+	return matchLabelSelector(rule, dashboard.Spec.RuleLabelSelector, false)
 }
 
-// matchLabelSelector checks if the rule matches the given selector
-// metadataOnly: if true, only checks resource metadata labels; if false, checks rule and group labels too
-func matchLabelSelector(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector, metadataOnly bool) bool {
-	if selector == nil {
-		return true
-	}
-
-	// For metadata-only checks, only use rule.Labels
-	if metadataOnly {
-		// Check matchLabels
-		for k, v := range selector.MatchLabels {
-			if resourceVal, ok := rule.Labels[k]; !ok || resourceVal != v {
-				return false
-			}
-		}
-
-		// Check matchExpressions
-		for _, expr := range selector.MatchExpressions {
-			switch expr.Operator {
-			case metav1.LabelSelectorOpExists:
-				if _, ok := rule.Labels[expr.Key]; !ok {
-					return false
-				}
-			}
-			// Add other operators as needed
-		}
-		return true
-	}
-
+func checkMetadataLabels(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector) bool {
 	// Check matchLabels
 	for k, v := range selector.MatchLabels {
-		// Check resource metadata labels
-		if resourceVal, ok := rule.Labels[k]; ok {
-			if resourceVal != v {
-				return false
-			}
-			continue
-		}
-
-		// If we're only checking metadata labels and we didn't find a match, fail
-		if metadataOnly {
-			return false
-		}
-
-		// Check labels in rule groups and alert rules
-		matchFound := false
-		for _, group := range rule.Spec.Groups {
-			// Check group labels
-			if groupVal, ok := group.Labels[k]; ok && groupVal == v {
-				matchFound = true
-				break
-			}
-
-			// Check individual alert rule labels
-			for _, alertRule := range group.Rules {
-				if alertVal, ok := alertRule.Labels[k]; ok && alertVal == v {
-					matchFound = true
-					break
-				}
-			}
-			if matchFound {
-				break
-			}
-		}
-		if !matchFound {
+		if resourceVal, ok := rule.Labels[k]; !ok || resourceVal != v {
 			return false
 		}
 	}
 
 	// Check matchExpressions
 	for _, expr := range selector.MatchExpressions {
-		switch expr.Operator {
-		case metav1.LabelSelectorOpExists:
-			exists := false
-			// Check resource metadata labels
-			if _, ok := rule.Labels[expr.Key]; ok {
-				exists = true
-			}
+		if expr.Operator == metav1.LabelSelectorOpExists && !hasLabel(rule.Labels, expr.Key) {
+			return false
+		}
+	}
+	return true
+}
 
-			// If not found in metadata and we're only checking metadata, fail
-			if !exists && metadataOnly {
-				return false
-			}
+func checkLabelsInGroups(rule *monitoringv1.PrometheusRule, key, value string) bool {
+	for _, group := range rule.Spec.Groups {
+		// Check group labels
+		if groupVal, ok := group.Labels[key]; ok && groupVal == value {
+			return true
+		}
 
-			// Check labels in rule groups and alert rules if not metadata only
-			if !exists && !metadataOnly {
-				for _, group := range rule.Spec.Groups {
-					// Check group labels
-					if _, ok := group.Labels[expr.Key]; ok {
-						exists = true
-						break
-					}
-
-					// Check individual alert rule labels
-					for _, alertRule := range group.Rules {
-						if _, ok := alertRule.Labels[expr.Key]; ok {
-							exists = true
-							break
-						}
-					}
-					if exists {
-						break
-					}
-				}
-			}
-			if !exists {
-				return false
+		// Check individual alert rule labels
+		for _, alertRule := range group.Rules {
+			if alertVal, ok := alertRule.Labels[key]; ok && alertVal == value {
+				return true
 			}
 		}
-		// Add other operators as needed
+	}
+	return false
+}
+
+func hasLabel(labels map[string]string, key string) bool {
+	_, ok := labels[key]
+	return ok
+}
+
+func matchLabelSelector(rule *monitoringv1.PrometheusRule, selector *metav1.LabelSelector, metadataOnly bool) bool {
+	if selector == nil {
+		return true
+	}
+
+	if metadataOnly {
+		return checkMetadataLabels(rule, selector)
+	}
+
+	// Check matchLabels
+	for k, v := range selector.MatchLabels {
+		if resourceVal, ok := rule.Labels[k]; ok && resourceVal == v {
+			continue
+		}
+		if !checkLabelsInGroups(rule, k, v) {
+			return false
+		}
 	}
 
 	return true
