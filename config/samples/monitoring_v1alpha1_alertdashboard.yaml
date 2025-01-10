@@ -3,8 +3,6 @@ kind: AlertDashboard
 metadata:
   name: backend-services-2
   namespace: monitoring
-  labels:
-    grafana_dashboard: "1"
 spec:
   ruleSelector:
     matchLabels:
