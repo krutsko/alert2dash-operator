@@ -21,9 +21,15 @@ type defaultRuleManager struct {
 
 func (m *defaultRuleManager) GetPrometheusRules(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) ([]monitoringv1.PrometheusRule, error) {
 	ruleList := &monitoringv1.PrometheusRuleList{}
+	var labelSelector labels.Selector
+	if dashboard.Spec.MetadataLabelSelector != nil {
+		labelSelector = labels.SelectorFromSet(dashboard.Spec.MetadataLabelSelector.MatchLabels)
+	} else {
+		labelSelector = labels.Everything()
+	}
 	listOpts := &client.ListOptions{
 		Namespace:     dashboard.Namespace,
-		LabelSelector: labels.SelectorFromSet(dashboard.Spec.MetadataLabelSelector.MatchLabels),
+		LabelSelector: labelSelector,
 	}
 
 	if err := m.client.List(ctx, ruleList, listOpts); err != nil {
