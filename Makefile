@@ -332,3 +332,7 @@ $(HELMIFY): $(LOCALBIN)
     
 helm: manifests kustomize helmify
 	$(KUSTOMIZE) build config/default | $(HELMIFY) alert2dash-operator
+
+	# override to shorter name and fullname in values.yaml
+	echo 'nameOverride: "a2d"' >> alert2dash-operator/values.yaml
+	echo 'fullnameOverride: "a2d"' >> alert2dash-operator/values.yaml

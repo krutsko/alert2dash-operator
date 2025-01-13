@@ -5,7 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: alert2dash-operator
     app.kubernetes.io/managed-by: kustomize
-  name: alertdashboard-viewer-role
+  name: viewer
 rules:
 - apiGroups:
   - monitoring.krutsko.com
