@@ -126,9 +126,9 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - name: Run tests with coverage
+      - name: Run tests
         run: |
-          go test -race -coverprofile=cover.out -covermode=atomic ./...
+          make test
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
