@@ -2,6 +2,7 @@
 
 # Alert2Dash Operator
 
+[![codecov](https://codecov.io/gh/krutsko/alert2dash-operator/branch/main/graph/badge.svg)](https://codecov.io/gh/krutsko/alert2dash-operator)
 </div>
 
 The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards.
