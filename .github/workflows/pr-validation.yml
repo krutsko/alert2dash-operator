@@ -99,13 +99,13 @@ jobs:
       - name: Run tests
         run: make test
 
-      # - name: Upload test coverage
-      #   uses: codecov/codecov-action@v4
-      #   with:
-      #     file: cover.out
-      #     fail_ci_if_error: true
-      #   env:
-      #     CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: cover.out
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Check for uncommitted changes
         run: |
