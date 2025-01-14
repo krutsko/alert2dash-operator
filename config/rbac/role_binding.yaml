@@ -11,5 +11,5 @@ roleRef:
   name: manager
 subjects:
 - kind: ServiceAccount
-  name: ctrl-mngr-sa
+  name: controller-manager-sa
   namespace: system

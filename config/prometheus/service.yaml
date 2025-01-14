@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: ctrl-mngr-service
+  name: controller-manager-service
   labels:
-    control-plane: a2d-ctrl-mng
+    control-plane: a2d-controller-manager
     app.kubernetes.io/name: alert2dash-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
@@ -13,4 +13,4 @@ spec:
     targetPort: 8080
     name: metrics
   selector:
-    control-plane: a2d-ctrl-mng
+    control-plane: a2d-controller-manager

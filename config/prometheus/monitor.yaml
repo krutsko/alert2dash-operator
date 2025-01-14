@@ -3,10 +3,10 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   labels:
-    control-plane: a2d-ctrl-mng
+    control-plane: a2d-controller-manager
     app.kubernetes.io/name: alert2dash-operator
     app.kubernetes.io/managed-by: kustomize
-  name: ctrl-mngr-monitor
+  name: controller-manager-monitor
   namespace: system
 spec:
   endpoints:
@@ -14,4 +14,4 @@ spec:
       port: mertrics
   selector:
     matchLabels:
-      control-plane: a2d-ctrl-mng
+      control-plane: a2d-controller-manager
