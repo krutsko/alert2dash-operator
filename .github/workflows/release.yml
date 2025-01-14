@@ -1,0 +1,177 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  set-vars:
+    permissions:
+      contents: read
+    if: github.repository == 'krutsko/alert2dash-operator'
+    runs-on: ubuntu-22.04
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=match,pattern=v(.*),group=1,prefix=v
+            type=raw,value=latest
+
+      - name: Determine image platforms
+        id: platforms
+        run: |
+          IMAGE_PLATFORMS=linux/amd64,linux/arm64
+          echo "platforms=$IMAGE_PLATFORMS" >> $GITHUB_OUTPUT
+
+
+  helm:
+    needs: [set-vars, build-and-publish]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Prepare
+        run: |
+          # OCI standard enforces lower-case paths
+          GHCR_REPO=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          HELM_REPO=$(echo "oci://ghcr.io/${{ github.repository_owner }}/helm-charts" | tr '[:upper:]' '[:lower:]')
+          echo "GHCR_REPO=$GHCR_REPO" >> $GITHUB_ENV
+          echo "HELM_REPO=$HELM_REPO" >> $GITHUB_ENV
+        
+      - name: Install Helmify
+        run: |
+          go install github.com/arttor/helmify/cmd/helmify@latest
+          
+      - name: Generate Helm chart
+        run: |
+          make helm
+          
+      - name: Publish Helm charts
+        run: |
+          cd alert2dash-operator
+          yq -i '.controllerManager.manager.image.repository = "${{ env.GHCR_REPO }}"' values.yaml
+          yq -i '.controllerManager.manager.image.tag = "${{ github.ref_name }}"' values.yaml
+
+          # Remove 'v' prefix for Helm version and export it
+          HELM_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          helm package --app-version ${{ github.ref_name }} --version ${HELM_VERSION} .
+          helm registry login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
+          helm push alert2dash-operator-${HELM_VERSION}.tgz ${{ env.HELM_REPO }}
+
+  build-only:
+    needs: [set-vars]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    if: ${{ github.repository == 'krutsko/alert2dash-operator' && github.event_name != 'push' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ needs.set-vars.outputs.platforms }}
+          push: false
+          tags: ${{ needs.set-vars.outputs.image-tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-and-publish:
+    needs: [set-vars]
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    if: ${{ github.repository == 'krutsko/alert2dash-operator' && github.event_name == 'push' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the version
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.4.0
+        with:
+          cosign-release: 'v2.2.2'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ needs.set-vars.outputs.platforms }}
+          push: true
+          tags: ${{ needs.set-vars.outputs.image-tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign the published Docker image
+        env:
+          TAGS: ${{ needs.set-vars.outputs.image-tag }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+      - name: Build installer
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.tag.outputs.tag }} \
+            --title "${{ steps.tag.outputs.tag }}" \
+            --generate-notes
+
+      - name: Upload installer to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml

@@ -1,0 +1,14 @@
+apiVersion: monitoring.krutsko.com/v1alpha1
+kind: AlertDashboard
+metadata:
+  name: test-service
+  namespace: business-services
+spec:
+  metadataLabelSelector:
+    matchLabels:
+      serviceName: test-service
+  ruleLabelSelector:
+    matchLabels:
+      severity: critical
+  dashboardConfig:
+    configMapNamePrefix: "grafana-dashboard"

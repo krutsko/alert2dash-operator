@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- monitoring_v1alpha1_alertdashboard.yaml
+- monitoring_v1alpha1_alertdashboard-test-service.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

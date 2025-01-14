@@ -1,0 +1,40 @@
+name: Upload Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  upload-installer:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set tag output
+        id: tag
+        run: echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.tag.outputs.tag }} \
+            --title "${{ steps.tag.outputs.tag }}" \
+            --generate-notes
+
+      - name: Build installer
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+
+      - name: Upload installer to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml
