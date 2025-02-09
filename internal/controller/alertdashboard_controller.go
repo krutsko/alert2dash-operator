@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,11 +262,13 @@ func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitor
 					if _, excluded := rule.Labels[constants.LabelExcludeRule]; excluded {
 						continue
 					}
-					promql := r.extractQuery(&rule)
-					for _, query := range promql {
+					parsedQueries := r.extractQuery(rule.Expr.String())
+					for _, query := range parsedQueries {
 						metric := model.GrafanaPanelQuery{
-							Name:  rule.Alert,
-							Query: query,
+							Name:      rule.Alert,
+							Query:     query.Query,
+							Threshold: query.Threshold,
+							Operator:  query.Operator,
 						}
 						grafanaPanelQueries = append(grafanaPanelQueries, metric)
 					}
@@ -294,28 +297,27 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	return r.Status().Update(ctx, dashboard)
 }
 
-func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []string {
-	expr := alert.Expr.String()
+func (r *AlertDashboardReconciler) extractQuery(expr string) []model.ParsedQueryResult {
 
 	// Parse the PromQL expression
 	parsedExpr, err := parser.ParseExpr(expr)
 	if err != nil {
 		r.Log.Error(err, "Failed to parse PromQL expression", "expr", expr)
-		return []string{""}
+		return []model.ParsedQueryResult{}
 	}
 
-	var results []string
+	var results []model.ParsedQueryResult
 
 	switch e := parsedExpr.(type) {
 	case *parser.ParenExpr:
-		// For parenthesized expressions, process the inner expression
-		expr := e.Expr.String()
-		results = append(results, sanitizeExpr(expr))
+		// extract queries from the inner parentheses
+		q := r.extractQuery(e.Expr.String())
+		results = append(results, q...)
 	case *parser.BinaryExpr:
 		switch e.Op {
 		case parser.ItemType(parser.LAND), parser.ItemType(parser.LOR), parser.ItemType(parser.LUNLESS):
 			// Skip logical operators entirely
-			return []string{""}
+			return []model.ParsedQueryResult{}
 		default:
 			// For comparison operators, check if either side is a scalar
 			if isComparisonOperator(e.Op) {
@@ -324,23 +326,23 @@ func (r *AlertDashboardReconciler) extractQuery(alert *monitoringv1.Rule) []stri
 
 				if !lhsIsScalar && !rhsIsScalar {
 					// Neither side is a scalar, skip this query
-					return []string{""}
+					return []model.ParsedQueryResult{}
 				}
 
 				// Return the non-scalar side
 				if rhsIsScalar {
-					results = append(results, sanitizeExpr(e.LHS.String()))
+					results = append(results, r.sanitizeExpr(e.LHS.String(), e.RHS.String(), e.Op))
 				} else {
-					results = append(results, sanitizeExpr(e.RHS.String()))
+					results = append(results, r.sanitizeExpr(e.RHS.String(), e.LHS.String(), r.inverse(e.Op)))
 				}
 			} else {
-				// For other operators (like arithmetic), keep the whole expression
-				results = append(results, sanitizeExpr(parsedExpr.String()))
+				// skip other operators (like arithmetic)
+				return []model.ParsedQueryResult{}
 			}
 		}
 	default:
-		// If no operator, return the expression as is
-		results = append(results, sanitizeExpr(parsedExpr.String()))
+		// skip if no operator
+		return []model.ParsedQueryResult{}
 	}
 
 	return results
@@ -354,13 +356,36 @@ func isComparisonOperator(op parser.ItemType) bool {
 	return false
 }
 
-func sanitizeExpr(expr string) string {
+func (r *AlertDashboardReconciler) getGrafanaThresholdOperator(op parser.ItemType) string {
+	switch op {
+	case parser.EQL, parser.NEQ, parser.GTR, parser.GTE, parser.EQLC:
+		return "gt"
+	case parser.LTE, parser.LSS:
+		return "lt"
+	default:
+		r.Log.Error(fmt.Errorf("unsupported operator: %s", op), "Unsupported operator fallback to gt")
+		return "gt"
+	}
+}
+
+func (r *AlertDashboardReconciler) sanitizeExpr(expr string, threshold string, operator parser.ItemType) model.ParsedQueryResult {
 	// Remove surrounding parentheses if they exist
 	expr = strings.TrimSpace(expr)
 	for len(expr) > 2 && expr[0] == '(' && expr[len(expr)-1] == ')' {
 		expr = strings.TrimSpace(expr[1 : len(expr)-1])
 	}
-	return expr
+
+	thresholdFloat, err := strconv.ParseFloat(threshold, 64)
+	if err != nil {
+		r.Log.Error(err, "Failed to parse threshold", "threshold", threshold)
+		return model.ParsedQueryResult{}
+	}
+
+	return model.ParsedQueryResult{
+		Query:     expr,
+		Threshold: thresholdFloat,
+		Operator:  r.getGrafanaThresholdOperator(operator),
+	}
 }
 
 // PrometheusRulePredicate filters PrometheusRule events
@@ -436,4 +461,19 @@ func (r *AlertDashboardReconciler) handlePrometheusRuleEvent(ctx context.Context
 	}
 
 	return requests
+}
+
+func (r *AlertDashboardReconciler) inverse(op parser.ItemType) parser.ItemType {
+	switch op {
+	case parser.GTR:
+		return parser.LSS
+	case parser.GTE:
+		return parser.LTE
+	case parser.LSS:
+		return parser.GTR
+	case parser.LTE:
+		return parser.GTE
+	default:
+		return op
+	}
 }

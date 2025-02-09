@@ -3,11 +3,10 @@ package controller
 import (
 	"testing"
 
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/krutsko/alert2dash-operator/internal/model"
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // Unit tests for query extraction
@@ -16,27 +15,27 @@ func TestExtractBaseQuery(t *testing.T) {
 	simpleQueries := []struct {
 		name     string
 		expr     string
-		expected []string
+		expected []model.ParsedQueryResult
 	}{
 		{
 			name:     "greater than operator",
 			expr:     "sum(rate(http_requests_total[5m])) > 100",
-			expected: []string{"sum(rate(http_requests_total[5m]))"},
+			expected: []model.ParsedQueryResult{{Query: "sum(rate(http_requests_total[5m]))", Threshold: 100, Operator: "gt"}},
 		},
 		{
 			name:     "less than operator",
 			expr:     "node_memory_MemAvailable_bytes < 1000000",
-			expected: []string{"node_memory_MemAvailable_bytes"},
+			expected: []model.ParsedQueryResult{{Query: "node_memory_MemAvailable_bytes", Threshold: 1000000, Operator: "lt"}},
 		},
 		{
 			name:     "equals operator",
 			expr:     `up{job="kubernetes-service-endpoints"} == 0`,
-			expected: []string{`up{job="kubernetes-service-endpoints"}`},
+			expected: []model.ParsedQueryResult{{Query: `up{job="kubernetes-service-endpoints"}`, Threshold: 0, Operator: "gt"}},
 		},
 		{
 			name:     "no operator",
 			expr:     "sum(rate(requests_total[5m]))",
-			expected: []string{"sum(rate(requests_total[5m]))"},
+			expected: []model.ParsedQueryResult{},
 		},
 	}
 
@@ -44,22 +43,32 @@ func TestExtractBaseQuery(t *testing.T) {
 	complexQueries := []struct {
 		name     string
 		expr     string
-		expected []string
+		expected []model.ParsedQueryResult
 	}{
 		{
 			name:     "query with by clause",
 			expr:     `sum by(code) (rate(http_requests_total[5m])) > 100`,
-			expected: []string{"sum by(code) (rate(http_requests_total[5m]))"},
+			expected: []model.ParsedQueryResult{{Query: "sum by(code) (rate(http_requests_total[5m]))", Threshold: 100, Operator: "gt"}},
 		},
 		{
 			name:     "query with regex matching",
 			expr:     `rate(http_requests{status=~"5.."}[5m]) > 0`,
-			expected: []string{`rate(http_requests{status=~"5.."}[5m])`},
+			expected: []model.ParsedQueryResult{{Query: `rate(http_requests{status=~"5.."}[5m])`, Threshold: 0, Operator: "gt"}},
 		},
 		{
 			name:     "query with subquery",
 			expr:     `max_over_time(rate(http_requests_total[5m])[1h:]) > 100`,
-			expected: []string{"max_over_time(rate(http_requests_total[5m])[1h:])"},
+			expected: []model.ParsedQueryResult{{Query: "max_over_time(rate(http_requests_total[5m])[1h:])", Threshold: 100, Operator: "gt"}},
+		},
+		{
+			name:     "query_with_parentheses",
+			expr:     `(rate(http_requests{status=~"5.."}[5m]) > 0)`,
+			expected: []model.ParsedQueryResult{{Query: `rate(http_requests{status=~"5.."}[5m])`, Threshold: 0, Operator: "gt"}},
+		},
+		{
+			name:     "query_with_arithmetic_operation",
+			expr:     `(rate(http_requests{status=~"5.."}[5m]) + 100)`,
+			expected: []model.ParsedQueryResult{},
 		},
 	}
 
@@ -67,22 +76,22 @@ func TestExtractBaseQuery(t *testing.T) {
 	complexRightHandQueries := []struct {
 		name     string
 		expr     string
-		expected []string
+		expected []model.ParsedQueryResult
 	}{
 		{
 			name:     "comparison with calculated value",
 			expr:     `sum(metric_a) < sum(metric_b)`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 		{
 			name:     "comparison with complex calculation",
 			expr:     `sum(up) < (count(up) + 1) / 2`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 		{
 			name:     "etcd insufficient members query",
 			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 	}
 
@@ -90,22 +99,22 @@ func TestExtractBaseQuery(t *testing.T) {
 	unsupportedQueries := []struct {
 		name     string
 		expr     string
-		expected []string
+		expected []model.ParsedQueryResult
 	}{
 		{
 			name:     "query with OR operator",
 			expr:     `(node_memory_MemAvailable_bytes < 1000000) or (node_memory_MemFree_bytes < 1000000)`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 		{
 			name:     "query with unless operator",
 			expr:     `rate(http_requests_total[5m]) > 100 unless on(instance) up == 0`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 		{
 			name:     "etcd insufficient members query",
 			expr:     `sum without (instance) (up{job=~".*etcd.*"} == bool 1) < ((count without (instance) (up{job=~".*etcd.*"}) + 1) / 2)`,
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 	}
 
@@ -113,32 +122,32 @@ func TestExtractBaseQuery(t *testing.T) {
 	scalarComparisonQueries := []struct {
 		name     string
 		expr     string
-		expected []string
+		expected []model.ParsedQueryResult
 	}{
 		{
 			name:     "scalar on right side",
 			expr:     "node_memory_MemAvailable_bytes < 1000000",
-			expected: []string{"node_memory_MemAvailable_bytes"},
+			expected: []model.ParsedQueryResult{{Query: "node_memory_MemAvailable_bytes", Threshold: 1000000, Operator: "lt"}},
 		},
 		{
 			name:     "scalar on left side",
 			expr:     "100 < rate(http_requests_total[5m])",
-			expected: []string{"rate(http_requests_total[5m])"},
+			expected: []model.ParsedQueryResult{{Query: "rate(http_requests_total[5m])", Threshold: 100, Operator: "gt"}},
 		},
 		{
 			name:     "both sides non-scalar",
 			expr:     "rate(metric_a[5m]) > rate(metric_b[5m])",
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{{}},
 		},
 		{
 			name:     "both sides scalar",
 			expr:     "100 < 200",
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{{}},
 		},
 		{
 			name:     "complex right side",
 			expr:     "metric_a > sum(metric_b) / count(metric_b)",
-			expected: []string{""},
+			expected: []model.ParsedQueryResult{},
 		},
 	}
 
@@ -205,10 +214,8 @@ func TestExtractBaseQueryInvalidExpr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results := r.extractQuery(&monitoringv1.Rule{
-				Expr: intstr.FromString(tt.expr),
-			})
-			assert.Equal(t, []string{""}, results, "Invalid query should return empty string array")
+			results := r.extractQuery(tt.expr)
+			assert.Equal(t, []model.ParsedQueryResult{}, results, "Invalid query should return empty string array")
 		})
 	}
 }
@@ -217,18 +224,23 @@ func TestExtractBaseQueryInvalidExpr(t *testing.T) {
 func runQueryTest(t *testing.T, r *AlertDashboardReconciler, tt struct {
 	name     string
 	expr     string
-	expected []string
+	expected []model.ParsedQueryResult
 }) {
-	results := r.extractQuery(&monitoringv1.Rule{
-		Expr: intstr.FromString(tt.expr),
-	})
+	results := r.extractQuery(tt.expr)
 	for i, result := range results {
-		if result == "" && tt.expected[i] == "" {
-			continue
-		}
-		expectedExpr, err := parser.ParseExpr(tt.expected[i])
+
+		// query
+		expectedExpr, err := parser.ParseExpr(tt.expected[i].Query)
 		require.NoError(t, err, "Failed to parse expected expression")
-		assert.Equal(t, expectedExpr.String(), result,
-			"Extracted query does not match expected")
+		assert.Equal(t, expectedExpr.String(), result.Query,
+			"Extracted query does not match expected"+tt.name)
+
+		// threshold
+		assert.Equal(t, tt.expected[i].Threshold, result.Threshold,
+			"Extracted threshold does not match expected"+tt.name)
+
+		// operator
+		assert.Equal(t, tt.expected[i].Operator, result.Operator,
+			"Extracted operator does not match expected"+tt.name)
 	}
 }

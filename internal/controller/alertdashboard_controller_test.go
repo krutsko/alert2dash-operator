@@ -7,12 +7,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus/prometheus/promql/parser"
 	"k8s.io/apimachinery/pkg/api/errors"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,8 +28,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/go-logr/logr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	"github.com/krutsko/alert2dash-operator/internal/constants"
+	"github.com/krutsko/alert2dash-operator/internal/model"
 	"github.com/krutsko/alert2dash-operator/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -336,14 +341,14 @@ var _ = Describe("AlertDashboard Controller", func() {
 							Rules: []monitoringv1.Rule{
 								{
 									Alert: "ExcludedAlert1",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"severity": "warning", // no required labels
 									},
 								},
 								{
 									Alert: "ExcludedAlert2",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"app":                      "test-app",
 										constants.LabelExcludeRule: "true", // This is the label that should exlude the rule from the dashboard
@@ -351,7 +356,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 								},
 								{
 									Alert: "GoodAlert",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"severity": "warning",
 										"app":      "test-app",
@@ -862,4 +867,256 @@ func handleResourceDeletion(ctx context.Context, c client.Client, obj client.Obj
 
 	// Wait for actual deletion
 	return waitForDeletion(ctx, c, namespacedName, obj.DeepCopyObject().(client.Object))
+}
+
+func TestGetGrafanaThresholdOperator(t *testing.T) {
+	// Create a minimal reconciler for testing
+	reconciler := &AlertDashboardReconciler{
+		Log: logr.Discard(), // Use a no-op logger for tests
+	}
+
+	tests := []struct {
+		name     string
+		operator parser.ItemType
+		want     string
+	}{
+		{
+			name:     "equal operator",
+			operator: parser.EQL,
+			want:     "gt",
+		},
+		{
+			name:     "not equal operator",
+			operator: parser.NEQ,
+			want:     "gt",
+		},
+		{
+			name:     "greater than operator",
+			operator: parser.GTR,
+			want:     "gt",
+		},
+		{
+			name:     "greater than or equal operator",
+			operator: parser.GTE,
+			want:     "gt",
+		},
+		{
+			name:     "less than operator",
+			operator: parser.LSS,
+			want:     "lt",
+		},
+		{
+			name:     "less than or equal operator",
+			operator: parser.LTE,
+			want:     "lt",
+		},
+		{
+			name:     "unsupported operator",
+			operator: parser.ADD,
+			want:     "gt", // Falls back to "gt" for unsupported operators
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reconciler.getGrafanaThresholdOperator(tt.operator)
+			if got != tt.want {
+				t.Errorf("getGrafanaThresholdOperator() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeExpr(t *testing.T) {
+	reconciler := &AlertDashboardReconciler{
+		Log: logr.Discard(), // Use a no-op logger for tests
+	}
+
+	tests := []struct {
+		name      string
+		expr      string
+		threshold string
+		operator  parser.ItemType
+		want      model.ParsedQueryResult
+	}{
+		{
+			name:      "valid expression and threshold",
+			expr:      "rate(http_requests_total[5m])",
+			threshold: "100",
+			operator:  parser.GTR,
+			want: model.ParsedQueryResult{
+				Query:     "rate(http_requests_total[5m])",
+				Threshold: 100,
+				Operator:  "gt",
+			},
+		},
+		{
+			name:      "expression with parentheses",
+			expr:      "(rate(http_requests_total[5m]))",
+			threshold: "50.5",
+			operator:  parser.LSS,
+			want: model.ParsedQueryResult{
+				Query:     "rate(http_requests_total[5m])",
+				Threshold: 50.5,
+				Operator:  "lt",
+			},
+		},
+		{
+			name:      "invalid threshold",
+			expr:      "rate(http_requests_total[5m])",
+			threshold: "invalid",
+			operator:  parser.GTR,
+			want:      model.ParsedQueryResult{}, // Should return empty result for invalid threshold
+		},
+		{
+			name:      "expression with multiple parentheses",
+			expr:      "(((rate(http_requests_total[5m]))))",
+			threshold: "75",
+			operator:  parser.GTE,
+			want: model.ParsedQueryResult{
+				Query:     "rate(http_requests_total[5m])",
+				Threshold: 75,
+				Operator:  "gt",
+			},
+		},
+		{
+			name:      "expression with whitespace",
+			expr:      "  rate(http_requests_total[5m])  ",
+			threshold: "25",
+			operator:  parser.LTE,
+			want: model.ParsedQueryResult{
+				Query:     "rate(http_requests_total[5m])",
+				Threshold: 25,
+				Operator:  "lt",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reconciler.sanitizeExpr(tt.expr, tt.threshold, tt.operator)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("sanitizeExpr() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAlertDashboardReconciler_extractQuery(t *testing.T) {
+	// Create a reconciler instance for testing
+	r := &AlertDashboardReconciler{
+		Log: logr.Discard(), // Use a no-op logger for tests
+	}
+
+	tests := []struct {
+		name     string
+		expr     string
+		expected []model.ParsedQueryResult
+	}{
+		{
+			name: "simple comparison",
+			expr: "metric > 5",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 5,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name: "parenthesized expression",
+			expr: "(metric > 10)",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 10,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name: "nested parentheses",
+			expr: "((metric > 15))",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 15,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name:     "logical operator",
+			expr:     "metric1 > 5 and metric2 < 10",
+			expected: []model.ParsedQueryResult{},
+		},
+		{
+			name:     "invalid expression",
+			expr:     "invalid >>>>",
+			expected: []model.ParsedQueryResult{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.extractQuery(tt.expr)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d results, got %d", len(tt.expected), len(result))
+				return
+			}
+
+			for i, exp := range tt.expected {
+				if !reflect.DeepEqual(result[i], exp) {
+					t.Errorf("result[%d] = %+v, want %+v", i, result[i], exp)
+				}
+			}
+		})
+	}
+}
+
+func TestAlertDashboardReconciler_inverse(t *testing.T) {
+	r := &AlertDashboardReconciler{}
+
+	tests := []struct {
+		name string
+		op   parser.ItemType
+		want parser.ItemType
+	}{
+		{
+			name: "GTR -> LSS",
+			op:   parser.GTR,
+			want: parser.LSS,
+		},
+		{
+			name: "LSS -> GTR",
+			op:   parser.LSS,
+			want: parser.GTR,
+		},
+		{
+			name: "GTE -> LTE",
+			op:   parser.GTE,
+			want: parser.LTE,
+		},
+		{
+			name: "LTE -> GTE",
+			op:   parser.LTE,
+			want: parser.GTE,
+		},
+		{
+			name: "EQL remains EQL",
+			op:   parser.EQL,
+			want: parser.EQL,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.inverse(tt.op)
+			if got != tt.want {
+				t.Errorf("inverse(%v) = %v, want %v", tt.op, got, tt.want)
+			}
+		})
+	}
 }
