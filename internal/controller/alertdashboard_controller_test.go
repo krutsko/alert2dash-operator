@@ -336,14 +336,14 @@ var _ = Describe("AlertDashboard Controller", func() {
 							Rules: []monitoringv1.Rule{
 								{
 									Alert: "ExcludedAlert1",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"severity": "warning", // no required labels
 									},
 								},
 								{
 									Alert: "ExcludedAlert2",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"app":                      "test-app",
 										constants.LabelExcludeRule: "true", // This is the label that should exlude the rule from the dashboard
@@ -351,7 +351,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 								},
 								{
 									Alert: "GoodAlert",
-									Expr:  intstr.FromString("vector(1)"),
+									Expr:  intstr.FromString("vector(1) == 1"),
 									Labels: map[string]string{
 										"severity": "warning",
 										"app":      "test-app",

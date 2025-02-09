@@ -42,7 +42,17 @@ dashboard.new(
           w: 24,
           x: 0,
           y: index * 8
-        }
+        },
+        thresholds: [
+            {
+              colorMode: 'critical',
+              fill: true,
+              line: true,
+              op: metric.operator,  // 'gt' or 'lt'
+              value: metric.threshold,
+              yaxis: 'right'
+            }
+        ]
       },
     std.parseJson(std.extVar('metrics'))
   )
