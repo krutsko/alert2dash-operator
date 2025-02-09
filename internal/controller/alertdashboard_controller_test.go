@@ -1001,3 +1001,122 @@ func TestSanitizeExpr(t *testing.T) {
 		})
 	}
 }
+
+func TestAlertDashboardReconciler_extractQuery(t *testing.T) {
+	// Create a reconciler instance for testing
+	r := &AlertDashboardReconciler{
+		Log: logr.Discard(), // Use a no-op logger for tests
+	}
+
+	tests := []struct {
+		name     string
+		expr     string
+		expected []model.ParsedQueryResult
+	}{
+		{
+			name: "simple comparison",
+			expr: "metric > 5",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 5,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name: "parenthesized expression",
+			expr: "(metric > 10)",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 10,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name: "nested parentheses",
+			expr: "((metric > 15))",
+			expected: []model.ParsedQueryResult{
+				{
+					Query:     "metric",
+					Threshold: 15,
+					Operator:  "gt",
+				},
+			},
+		},
+		{
+			name:     "logical operator",
+			expr:     "metric1 > 5 and metric2 < 10",
+			expected: []model.ParsedQueryResult{},
+		},
+		{
+			name:     "invalid expression",
+			expr:     "invalid >>>>",
+			expected: []model.ParsedQueryResult{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.extractQuery(tt.expr)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d results, got %d", len(tt.expected), len(result))
+				return
+			}
+
+			for i, exp := range tt.expected {
+				if !reflect.DeepEqual(result[i], exp) {
+					t.Errorf("result[%d] = %+v, want %+v", i, result[i], exp)
+				}
+			}
+		})
+	}
+}
+
+func TestAlertDashboardReconciler_inverse(t *testing.T) {
+	r := &AlertDashboardReconciler{}
+
+	tests := []struct {
+		name string
+		op   parser.ItemType
+		want parser.ItemType
+	}{
+		{
+			name: "GTR -> LSS",
+			op:   parser.GTR,
+			want: parser.LSS,
+		},
+		{
+			name: "LSS -> GTR",
+			op:   parser.LSS,
+			want: parser.GTR,
+		},
+		{
+			name: "GTE -> LTE",
+			op:   parser.GTE,
+			want: parser.LTE,
+		},
+		{
+			name: "LTE -> GTE",
+			op:   parser.LTE,
+			want: parser.GTE,
+		},
+		{
+			name: "EQL remains EQL",
+			op:   parser.EQL,
+			want: parser.EQL,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.inverse(tt.op)
+			if got != tt.want {
+				t.Errorf("inverse(%v) = %v, want %v", tt.op, got, tt.want)
+			}
+		})
+	}
+}
