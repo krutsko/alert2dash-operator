@@ -77,7 +77,6 @@ jobs:
         with:
           version: latest
           args: --timeout=10m --out-format=colored-line-number
-          output-mode: colored-line-number
           
       - name: Run golangci-lint
         run: make lint
