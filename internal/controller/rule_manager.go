@@ -75,18 +75,6 @@ func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, da
 		return false
 	}
 
-	// Check for excluded rules
-	for _, group := range rule.Spec.Groups {
-		for _, alertRule := range group.Rules {
-			if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
-				m.log.V(1).Info("Rule is excluded",
-					"rule", rule.Name,
-					"alert", alertRule.Alert)
-				return false
-			}
-		}
-	}
-
 	// Check rule labels (check against rule's metadata, group, and alert labels)
 	return matchLabelSelector(rule, dashboard.Spec.RuleLabelSelector, false)
 }
@@ -117,6 +105,10 @@ func checkLabelsInGroups(rule *monitoringv1.PrometheusRule, key, value string) b
 
 		// Check individual alert rule labels
 		for _, alertRule := range group.Rules {
+			// Skip rules with exclude label
+			if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
+				continue
+			}
 			if alertVal, ok := alertRule.Labels[key]; ok && alertVal == value {
 				return true
 			}
