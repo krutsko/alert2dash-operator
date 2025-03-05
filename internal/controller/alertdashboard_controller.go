@@ -40,7 +40,6 @@ type DashboardGenerator interface {
 type RuleManager interface {
 	GetPrometheusRules(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) ([]monitoringv1.PrometheusRule, error)
 	FindAffectedDashboards(ctx context.Context, rule *monitoringv1.PrometheusRule) ([]monitoringv1alpha1.AlertDashboard, error)
-	MatchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool
 }
 
 // ConfigMapManager handles ConfigMap operations

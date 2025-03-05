@@ -58,7 +58,7 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 
 	// Check each dashboard to see if it matches the rule
 	for _, dashboard := range dashboardList.Items {
-		if m.MatchesLabels(rule, &dashboard) {
+		if m.matchesLabels(rule, &dashboard) {
 			m.log.V(1).Info("Found affected dashboard",
 				"dashboard", dashboard.Name,
 				"rule", rule.Name)
@@ -69,22 +69,10 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 	return affectedDashboards, nil
 }
 
-func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool {
+func (m *defaultRuleManager) matchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool {
 	// Check metadata labels (only check against rule's metadata labels)
 	if !matchLabelSelector(rule, dashboard.Spec.MetadataLabelSelector, true) {
 		return false
-	}
-
-	// Check for excluded rules
-	for _, group := range rule.Spec.Groups {
-		for _, alertRule := range group.Rules {
-			if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
-				m.log.V(1).Info("Rule is excluded",
-					"rule", rule.Name,
-					"alert", alertRule.Alert)
-				return false
-			}
-		}
 	}
 
 	// Check rule labels (check against rule's metadata, group, and alert labels)
@@ -117,6 +105,10 @@ func checkLabelsInGroups(rule *monitoringv1.PrometheusRule, key, value string) b
 
 		// Check individual alert rule labels
 		for _, alertRule := range group.Rules {
+			// Skip rules with exclude label
+			if _, excluded := alertRule.Labels[constants.LabelExcludeRule]; excluded {
+				continue
+			}
 			if alertVal, ok := alertRule.Labels[key]; ok && alertVal == value {
 				return true
 			}
