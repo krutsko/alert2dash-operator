@@ -7,7 +7,8 @@ local row = grafana.row;
 
 dashboard.new(
   std.extVar('title'),
-  tags=['generated', 'prometheus'],
+  uid='alert2dash-' + std.extVar('title'),
+  tags=['generated', 'alert2dash'],
   time_from='now-1h',
   timezone='browser',
   refresh='10s',
@@ -46,7 +47,7 @@ dashboard.new(
         thresholds: [
             {
               colorMode: 'critical',
-              fill: true,
+              fill: false,
               line: true,
               op: metric.operator,  // 'gt' or 'lt'
               value: metric.threshold,
