@@ -58,7 +58,7 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 
 	// Check each dashboard to see if it matches the rule
 	for _, dashboard := range dashboardList.Items {
-		if m.MatchesLabels(rule, &dashboard) {
+		if m.matchesLabels(rule, &dashboard) {
 			m.log.V(1).Info("Found affected dashboard",
 				"dashboard", dashboard.Name,
 				"rule", rule.Name)
@@ -69,7 +69,7 @@ func (m *defaultRuleManager) FindAffectedDashboards(ctx context.Context, rule *m
 	return affectedDashboards, nil
 }
 
-func (m *defaultRuleManager) MatchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool {
+func (m *defaultRuleManager) matchesLabels(rule *monitoringv1.PrometheusRule, dashboard *monitoringv1alpha1.AlertDashboard) bool {
 	// Check metadata labels (only check against rule's metadata labels)
 	if !matchLabelSelector(rule, dashboard.Spec.MetadataLabelSelector, true) {
 		return false

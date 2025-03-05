@@ -333,7 +333,7 @@ func TestRuleManager(t *testing.T) {
 				},
 			}
 
-			got := manager.MatchesLabels(tt.rule, dashboard)
+			got := manager.matchesLabels(tt.rule, dashboard)
 			assert.Equal(t, tt.want, got, tt.description)
 		})
 	}
@@ -548,7 +548,7 @@ func TestRuleAlertSelection(t *testing.T) {
 			}
 
 			// First verify the rule matches
-			matches := manager.MatchesLabels(tt.rule, dashboard)
+			matches := manager.matchesLabels(tt.rule, dashboard)
 			require.True(t, matches, "Rule should match dashboard selectors")
 
 			// Now verify which alerts are selected
@@ -619,4 +619,40 @@ func getSelectedAlerts(rule *monitoringv1.PrometheusRule, dashboard *monitoringv
 	}
 
 	return selectedAlerts
+}
+
+func TestCheckLabelsInGroups(t *testing.T) {
+	rule := &monitoringv1.PrometheusRule{
+		Spec: monitoringv1.PrometheusRuleSpec{
+			Groups: []monitoringv1.RuleGroup{
+				{
+					Name: "test-group",
+					Rules: []monitoringv1.Rule{
+						{
+							Alert: "ExcludedAlert",
+							Labels: map[string]string{
+								"team":                     "sre",
+								constants.LabelExcludeRule: "true",
+							},
+						},
+						{
+							Alert: "IncludedAlert",
+							Labels: map[string]string{
+								"team": "sre",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Test that we still find a match even when skipping excluded rules
+	result := checkLabelsInGroups(rule, "team", "sre")
+	assert.True(t, result, "Should find matching label in non-excluded alert")
+
+	// Test with a label that only exists in excluded rules
+	rule.Spec.Groups[0].Rules[0].Labels["unique"] = "value"
+	result = checkLabelsInGroups(rule, "unique", "value")
+	assert.False(t, result, "Should not find match when label only exists in excluded alert")
 }
