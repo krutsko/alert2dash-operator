@@ -13,6 +13,8 @@ The Alert2Dash Operator is a Kubernetes operator that automatically generates Gr
 
 ## How it works
 
+The Alert2Dash Operator works by monitoring PrometheusRule resources in your cluster. When an AlertDashboard custom resource is created, it uses label selectors to identify relevant PrometheusRules, extracts metrics from their alert expressions, and generates dashboard JSON. This JSON is stored in ConfigMaps which the Grafana Operator transforms into actual dashboards in Grafana. The process is fully automated, keeping your dashboards synchronized with your alerting definitions.
+
 Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator:
 
 ```
