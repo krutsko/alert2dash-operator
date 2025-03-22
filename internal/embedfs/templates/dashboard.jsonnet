@@ -11,7 +11,6 @@ dashboard.new(
   tags=['generated', 'alert2dash'],
   time_from='now-1h',
   timezone='browser',
-  refresh='10s',
   editable=true,
 )
 .addTemplate(
