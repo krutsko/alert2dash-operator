@@ -63,7 +63,7 @@ jobs:
         
       - name: Install Helmify
         run: |
-          go install github.com/arttor/helmify/cmd/helmify@latest
+          go install github.com/arttor/helmify/cmd/helmify@v0.4.18
           
       - name: Generate Helm chart
         run: |
@@ -195,3 +195,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ steps.tag.outputs.tag }} dist/install.yaml
+
+      - name: Create or update 'latest' release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if 'latest' release exists
+          if gh release view latest &>/dev/null; then
+            # Delete existing 'latest' release
+            gh release delete latest --yes
+          fi
+          
+          # Create new 'latest' release
+          gh release create latest \
+            --title "Latest Release" \
+            --notes "This is always the latest release. Use this URL for installation: https://github.com/krutsko/alert2dash-operator/releases/download/latest/install.yaml"
+            
+      - name: Upload installer to 'latest' release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload latest dist/install.yaml
