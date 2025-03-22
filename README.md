@@ -65,11 +65,15 @@ helm upgrade -i alert2dash oci://ghcr.io/krutsko/helm-charts/alert2dash-operator
 
 Users can just run kubectl to install the project, i.e.:
 
-```sh
-# Latest release
-kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/latest/install.yaml
+- Latest release
 
-# Specific version
+```sh
+kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/latest/install.yaml
+```
+
+- Specific version
+
+```sh
 kubectl apply -f https://github.com/krutsko/alert2dash-operator/releases/download/vX.Y.Z/install.yaml
 ```
 
