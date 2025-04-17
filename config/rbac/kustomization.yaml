@@ -9,6 +9,4 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
-- alertdashboard_editor_role.yaml
-- alertdashboard_viewer_role.yaml
 
