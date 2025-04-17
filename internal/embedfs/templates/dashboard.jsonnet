@@ -5,9 +5,13 @@ local prometheus = grafana.prometheus;
 local template = grafana.template;
 local row = grafana.row;
 
+// Generate a short hash of the title for the UID
+local titleHash = std.md5(std.extVar('title'));
+local dashboardUid = std.substr(titleHash, 0, 40); // 40 chars total for the UID
+
 dashboard.new(
   std.extVar('title'),
-  uid='alert2dash-' + std.extVar('title'),
+  uid=dashboardUid,
   tags=['generated', 'alert2dash'],
   time_from='now-1h',
   timezone='browser',
@@ -52,7 +56,8 @@ dashboard.new(
               value: metric.threshold,
               yaxis: 'right'
             }
-        ]
+        ],
+        type: 'timeseries',  // Use timeseries instead of graph panel type
       },
     std.parseJson(std.extVar('metrics'))
   )
