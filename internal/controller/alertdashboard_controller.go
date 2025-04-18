@@ -45,7 +45,6 @@ type RuleManager interface {
 // ConfigMapManager handles ConfigMap operations
 type ConfigMapManager interface {
 	CreateOrUpdateConfigMap(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard, content []byte) error
-	DeleteConfigMap(ctx context.Context, namespacedName types.NamespacedName) error
 }
 
 // AlertDashboardReconciler reconciles a AlertDashboard object
@@ -129,11 +128,7 @@ func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard
 		return ctrl.Result{}, nil
 	}
 
-	// Implement cleanup logic
-	if err := r.cleanupDashboardResources(ctx, dashboard); err != nil {
-		log.Error(err, "Failed to cleanup dashboard resources")
-		return ctrl.Result{}, err
-	}
+	// custom cleanup logic is not needed, because we have finalizer
 
 	// Remove finalizer
 	dashboard.Finalizers = utils.RemoveString(dashboard.Finalizers, dashboardFinalizer)
@@ -208,37 +203,6 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	}
 
 	log.Info("Successfully processed dashboard")
-	return nil
-}
-
-func (r *AlertDashboardReconciler) cleanupDashboardResources(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) error {
-	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
-
-	// Get list of all related ConfigMaps
-	configMapList := &corev1.ConfigMapList{}
-	listOpts := []client.ListOption{
-		client.InNamespace(dashboard.Namespace),
-		client.MatchingLabels{
-			constants.LabelGrafanaDashboard: "1",
-			constants.LabelDashboardName:    dashboard.Name,
-		},
-	}
-
-	if err := r.List(ctx, configMapList, listOpts...); err != nil {
-		return fmt.Errorf("failed to list ConfigMaps: %w", err)
-	}
-
-	// Delete all related ConfigMaps
-	for _, cm := range configMapList.Items {
-		if err := r.Delete(ctx, &cm); err != nil {
-			if !kuberr.IsNotFound(err) {
-				log.Error(err, "Failed to delete ConfigMap", "configmap", cm.Name)
-				return err
-			}
-		}
-		log.V(1).Info("Deleted ConfigMap", "configmap", cm.Name)
-	}
-
 	return nil
 }
 
@@ -423,6 +387,7 @@ func (r *AlertDashboardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.handlePrometheusRuleEvent),
 			builder.WithPredicates(&prometheusRulePredicate{}),
 		).
+		Owns(&corev1.ConfigMap{}).
 		Complete(r)
 }
 
