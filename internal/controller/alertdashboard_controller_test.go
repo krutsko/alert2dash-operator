@@ -229,6 +229,28 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			By("verifying the ConfigMap has correct owner references")
+			var configMap *corev1.ConfigMap
+			Eventually(func() error {
+				configMap = &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "grafana-dashboard-" + resourceName,
+					Namespace: "default",
+				}, configMap)
+
+				if err != nil {
+					return err
+				}
+
+				// Just get the configmap and store it for later checks
+				return nil
+			}, "10s", "1s").Should(Succeed())
+
+			// Now verify it has proper owner references
+			Expect(configMap.OwnerReferences).To(HaveLen(1))
+			Expect(configMap.OwnerReferences[0].Kind).To(Equal("AlertDashboard"))
+			Expect(configMap.OwnerReferences[0].Name).To(Equal(resourceName))
+
 			By("deleting the AlertDashboard resource")
 			alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 			err = k8sClient.Get(ctx, namespacedName, alertDashboard)
@@ -242,15 +264,18 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying the ConfigMap was deleted")
-			Eventually(func() error {
-				configMap := &corev1.ConfigMap{}
-				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "grafana-dashboard-" + resourceName,
-					Namespace: "default",
-				}, configMap)
-				return err
-			}, "10s", "1s").Should(Satisfy(kuberr.IsNotFound))
+			By("verifying the finalizer was removed")
+			Eventually(func() bool {
+				dashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, dashboard)
+				if err != nil && kuberr.IsNotFound(err) {
+					return true
+				}
+				if err != nil {
+					return false
+				}
+				return len(dashboard.Finalizers) == 0
+			}, "10s", "1s").Should(BeTrue())
 		})
 
 		It("should not create ConfigMap when no PrometheusRules match", func() {
