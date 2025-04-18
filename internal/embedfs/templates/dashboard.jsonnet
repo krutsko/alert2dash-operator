@@ -47,16 +47,41 @@ dashboard.new(
           x: 0,
           y: index * 8
         },
-        thresholds: [
+        thresholds: {
+          steps: [
             {
-              colorMode: 'critical',
-              fill: false,
-              line: true,
-              op: metric.operator,  // 'gt' or 'lt'
-              value: metric.threshold,
-              yaxis: 'right'
+              color: 'green',
+              value: null
+            },
+            {
+              color: 'red',
+              value: metric.threshold
             }
-        ],
+          ],
+          mode: 'absolute'
+        },
+        fieldConfig: {
+          defaults: {
+            thresholds: {
+              mode: 'absolute',
+              steps: [
+                {
+                  color: 'green',
+                  value: null
+                },
+                {
+                  color: 'red',
+                  value: metric.threshold
+                }
+              ]
+            },
+            custom: {
+              thresholdsStyle: {
+                mode: 'line+area'
+              }
+            }
+          }
+        },
         type: 'timeseries',  // Use timeseries instead of graph panel type
       },
     std.parseJson(std.extVar('metrics'))
