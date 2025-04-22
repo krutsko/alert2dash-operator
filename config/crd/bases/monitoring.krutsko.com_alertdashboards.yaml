@@ -166,6 +166,9 @@ spec:
                 items:
                   type: string
                 type: array
+              rulesHash:
+                description: RulesHash is a hash of the observed rules
+                type: string
             type: object
         type: object
     served: true

@@ -634,6 +634,133 @@ var _ = Describe("AlertDashboard Controller", func() {
 	})
 })
 
+func TestComputeRulesHash(t *testing.T) {
+	tests := []struct {
+		name     string
+		rules    []monitoringv1.PrometheusRule
+		modify   func([]monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule
+		wantSame bool
+	}{
+		{
+			name: "same rules produce same hash",
+			rules: []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule1",
+						ResourceVersion: "1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule2",
+						ResourceVersion: "1",
+					},
+				},
+			},
+			modify:   func(rules []monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule { return rules },
+			wantSame: true,
+		},
+		{
+			name: "different resource versions produce different hash",
+			rules: []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule1",
+						ResourceVersion: "1",
+					},
+				},
+			},
+			modify: func(rules []monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule {
+				rules[0].ResourceVersion = "2"
+				return rules
+			},
+			wantSame: false,
+		},
+		{
+			name: "different order produces same hash",
+			rules: []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule1",
+						ResourceVersion: "1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule2",
+						ResourceVersion: "1",
+					},
+				},
+			},
+			modify: func(rules []monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule {
+				// Swap the order of rules
+				rules[0], rules[1] = rules[1], rules[0]
+				return rules
+			},
+			wantSame: true,
+		},
+		{
+			name: "different rules produce different hash",
+			rules: []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule1",
+						ResourceVersion: "1",
+					},
+				},
+			},
+			modify: func(rules []monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule {
+				return []monitoringv1.PrometheusRule{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "rule2",
+							ResourceVersion: "1",
+						},
+					},
+				}
+			},
+			wantSame: false,
+		},
+		{
+			name: "same content with different annotations produces same hash",
+			rules: []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "rule1",
+						ResourceVersion: "1",
+						Annotations: map[string]string{
+							"description": "Original description",
+						},
+					},
+				},
+			},
+			modify: func(rules []monitoringv1.PrometheusRule) []monitoringv1.PrometheusRule {
+				rules[0].Annotations = map[string]string{
+					"description":    "Modified description",
+					"new-annotation": "test",
+				}
+				return rules
+			},
+			wantSame: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalHash := computeRulesHash(tt.rules)
+			modifiedRules := tt.modify(tt.rules)
+			modifiedHash := computeRulesHash(modifiedRules)
+
+			if tt.wantSame && originalHash != modifiedHash {
+				t.Errorf("expected same hash, got different: %s vs %s", originalHash, modifiedHash)
+			}
+			if !tt.wantSame && originalHash == modifiedHash {
+				t.Errorf("expected different hash, got same: %s", originalHash)
+			}
+		})
+	}
+}
+
 var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 	Context("When PrometheusRules are modified", func() {
 		const resourceName = "test-resource-rule-updates"
@@ -766,6 +893,71 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			requests := reconciler.handlePrometheusRuleEvent(ctx, modifiedRule)
 			Expect(requests).To(HaveLen(1))
 			Expect(requests[0].Name).To(Equal(resourceName))
+		})
+
+		It("should not trigger updates when no rules change and hash remains the same", func() {
+			By("triggering reconciliation first time to get initial hash")
+			// Trigger first reconciliation
+			result1, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result1.Requeue).To(BeFalse())
+
+			// Get the dashboard after first reconciliation
+			dashboardAfterFirst := &monitoringv1alpha1.AlertDashboard{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
+			}, dashboardAfterFirst)).To(Succeed())
+
+			// Store the hash from first reconciliation
+			firstHash := dashboardAfterFirst.Status.RulesHash
+			Expect(firstHash).To(BeEmpty(), "Hash is empty")
+
+			By("triggering reconciliation second time to get a hash")
+			// Trigger second reconciliation
+			result2, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+			})
+			// Get the dashboard after second reconciliation
+			dashboardAfterSecond := &monitoringv1alpha1.AlertDashboard{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
+			}, dashboardAfterSecond)).To(Succeed())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result2.Requeue).To(BeFalse())
+			secondHash := dashboardAfterSecond.Status.RulesHash
+			Expect(secondHash).NotTo(BeEmpty(), "Hash is not empty")
+
+			By("triggering reconciliation third time to get a hash")
+			// Trigger second reconciliation
+			result3, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+			})
+			// Get the dashboard after second reconciliation
+			dashboardAfterThird := &monitoringv1alpha1.AlertDashboard{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
+			}, dashboardAfterThird)).To(Succeed())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result3.Requeue).To(BeFalse())
+			thirdHash := dashboardAfterThird.Status.RulesHash
+			Expect(thirdHash).NotTo(BeEmpty(), "Hash is not empty")
+
+			// Verify the hash hasn't changed between reconciliations
+			Expect(dashboardAfterThird.Status.RulesHash).To(Equal(secondHash), "Hash should remain the same when no rules change")
 		})
 
 		It("should not trigger updates for metadata-only changes", func() {
