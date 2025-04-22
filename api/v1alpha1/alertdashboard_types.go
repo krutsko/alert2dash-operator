@@ -49,6 +49,9 @@ type AlertDashboardStatus struct {
 
 	// ObservedRules list of PrometheusRules being watched
 	ObservedRules []string `json:"observedRules,omitempty"`
+
+	// RulesHash is a hash of the observed rules
+	RulesHash string `json:"rulesHash,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -253,11 +255,49 @@ func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 		observedRules = append(observedRules, rule.Name)
 	}
 
-	dashboard.Status.ConfigMapName = fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
+	// Format ConfigMap name
+	configMapName := fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
+
+	// Generate a hash that represents the combined state of all rules
+	ruleHash := computeRulesHash(rules)
+
+	// Check if status actually changed
+	if dashboard.Status.ConfigMapName == configMapName &&
+		dashboard.Status.RulesHash == ruleHash {
+
+		r.Log.V(1).Info("Status unchanged, skipping update",
+			"dashboard", dashboard.Name,
+			"namespace", dashboard.Namespace)
+		return nil
+	}
+
+	// Status is different, update it
+	dashboard.Status.ConfigMapName = configMapName
 	dashboard.Status.LastUpdated = time.Now().Format(time.RFC3339)
 	dashboard.Status.ObservedRules = observedRules
+	dashboard.Status.RulesHash = ruleHash
 
 	return r.Status().Update(ctx, dashboard)
+}
+
+func computeRulesHash(rules []monitoringv1.PrometheusRule) string {
+	// Use a hasher that can be written to
+	h := sha256.New()
+
+	// Sort rules by name for consistency
+	sortedRules := make([]monitoringv1.PrometheusRule, len(rules))
+	copy(sortedRules, rules)
+	sort.Slice(sortedRules, func(i, j int) bool {
+		return sortedRules[i].Name < sortedRules[j].Name
+	})
+
+	for _, rule := range sortedRules {
+		// Simply use the ResourceVersion of each rule
+		// ResourceVersion changes whenever any part of the rule changes
+		h.Write([]byte(rule.Name + ":" + rule.ResourceVersion))
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func (r *AlertDashboardReconciler) extractQuery(expr string) []model.ParsedQueryResult {

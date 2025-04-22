@@ -24,39 +24,94 @@ type defaultConfigMapManager struct {
 func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard, content []byte) error {
 	configMapName := fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
 
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: dashboard.Namespace,
-		},
-	}
-
-	op, err := ctrl.CreateOrUpdate(ctx, m.client, configMap, func() error {
-		// Set or update labels
-		if configMap.Labels == nil {
-			configMap.Labels = make(map[string]string)
-		}
-		configMap.Labels[constants.LabelGrafanaDashboard] = "1"
-		configMap.Labels[constants.LabelDashboardName] = dashboard.Name
-
-		// Set or update data
-		if configMap.Data == nil {
-			configMap.Data = make(map[string]string)
-		}
-		configMap.Data[dashboard.Name+".json"] = string(content)
-
-		// Set owner reference
-		return ctrl.SetControllerReference(dashboard, configMap, m.scheme)
-	})
+	// Check if ConfigMap exists
+	existingConfigMap := &corev1.ConfigMap{}
+	err := m.client.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: dashboard.Namespace}, existingConfigMap)
 
 	if err != nil {
-		return fmt.Errorf("failed to create/update ConfigMap %s: %w", configMapName, err)
+		// ConfigMap doesn't exist, create a new one
+		m.log.V(1).Info("ConfigMap not found, creating new one",
+			"name", configMapName,
+			"namespace", dashboard.Namespace)
+
+		newConfigMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: dashboard.Namespace,
+				Labels: map[string]string{
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    dashboard.Name,
+				},
+			},
+			Data: map[string]string{
+				dashboard.Name + ".json": string(content),
+			},
+		}
+
+		// Set owner reference
+		if err := ctrl.SetControllerReference(dashboard, newConfigMap, m.scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+
+		if err := m.client.Create(ctx, newConfigMap); err != nil {
+			return fmt.Errorf("failed to create ConfigMap %s: %w", configMapName, err)
+		}
+
+		m.log.V(1).Info("ConfigMap created successfully",
+			"name", configMapName,
+			"namespace", dashboard.Namespace)
+		return nil
 	}
 
-	m.log.V(1).Info("ConfigMap operation completed",
-		"name", configMapName,
-		"operation", op,
-		"namespace", dashboard.Namespace)
+	// ConfigMap exists, check if content needs updating
+	dashboardKey := dashboard.Name + ".json"
+	currentContent, exists := existingConfigMap.Data[dashboardKey]
+
+	// Check if update is needed
+	needsUpdate := false
+
+	// Check labels
+	if existingConfigMap.Labels == nil ||
+		existingConfigMap.Labels[constants.LabelGrafanaDashboard] != "1" ||
+		existingConfigMap.Labels[constants.LabelDashboardName] != dashboard.Name {
+		needsUpdate = true
+	}
+
+	// Check content
+	if !exists || currentContent != string(content) {
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		// Update the ConfigMap
+		if existingConfigMap.Labels == nil {
+			existingConfigMap.Labels = make(map[string]string)
+		}
+		existingConfigMap.Labels[constants.LabelGrafanaDashboard] = "1"
+		existingConfigMap.Labels[constants.LabelDashboardName] = dashboard.Name
+
+		if existingConfigMap.Data == nil {
+			existingConfigMap.Data = make(map[string]string)
+		}
+		existingConfigMap.Data[dashboardKey] = string(content)
+
+		// Ensure owner reference is set
+		if err := ctrl.SetControllerReference(dashboard, existingConfigMap, m.scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+
+		if err := m.client.Update(ctx, existingConfigMap); err != nil {
+			return fmt.Errorf("failed to update ConfigMap %s: %w", configMapName, err)
+		}
+
+		m.log.V(1).Info("ConfigMap updated successfully",
+			"name", configMapName,
+			"namespace", dashboard.Namespace)
+	} else {
+		m.log.V(1).Info("ConfigMap is up to date, no changes needed",
+			"name", configMapName,
+			"namespace", dashboard.Namespace)
+	}
 
 	return nil
 }
