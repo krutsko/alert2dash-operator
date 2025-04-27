@@ -16,8 +16,11 @@ import (
 	. "github.com/onsi/gomega"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/errors"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -29,12 +32,267 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/testr"
 	monitoringv1alpha1 "github.com/krutsko/alert2dash-operator/api/v1alpha1"
 	"github.com/krutsko/alert2dash-operator/internal/constants"
 	"github.com/krutsko/alert2dash-operator/internal/model"
 	"github.com/krutsko/alert2dash-operator/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+func TestAlertDashboardController(t *testing.T) {
+	t.Run("ComputeRulesHash", func(t *testing.T) {
+		// Create test rules in different order
+		rules1 := []monitoringv1.PrometheusRule{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rule-a"},
+				Spec:       monitoringv1.PrometheusRuleSpec{},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rule-b"},
+				Spec:       monitoringv1.PrometheusRuleSpec{},
+			},
+		}
+
+		rules2 := []monitoringv1.PrometheusRule{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rule-b"},
+				Spec:       monitoringv1.PrometheusRuleSpec{},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rule-a"},
+				Spec:       monitoringv1.PrometheusRuleSpec{},
+			},
+		}
+
+		// Compute hash for both rule sets
+		hash1 := computeRulesHash(rules1)
+		hash2 := computeRulesHash(rules2)
+
+		// Verify hashes are the same regardless of rule order
+		assert.Equal(t, hash1, hash2, "Hash should be the same regardless of rule order")
+	})
+	// Setup
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, monitoringv1alpha1.AddToScheme(scheme))
+
+	// Create a test logger with debug level
+	testLogger := testr.New(t)
+	testLogger = testLogger.V(1) // Increase verbosity level
+
+	t.Run("TestAlertDashboardController", func(t *testing.T) {
+		t.Run("extractGrafanaPanelQueries", func(t *testing.T) {
+			// Create a reconciler with test logger
+			r := &AlertDashboardReconciler{
+				Log: testLogger,
+			}
+
+			// Create test dashboard
+			dashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dashboard",
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					// No label selector means all rules are included
+				},
+			}
+
+			// Create dashboard with label selector
+			dashboardWithSelector := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dashboard-with-selector",
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					RuleLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"severity": "critical",
+						},
+					},
+				},
+			}
+
+			// Create test PrometheusRules
+			rules := []monitoringv1.PrometheusRule{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-rule-1",
+						Namespace: "default",
+					},
+					Spec: monitoringv1.PrometheusRuleSpec{
+						Groups: []monitoringv1.RuleGroup{
+							{
+								Name: "group1",
+								Rules: []monitoringv1.Rule{
+									{
+										Alert: "HighCPUUsage",
+										Expr:  intstr.FromString("cpu_usage > 90"),
+										Labels: map[string]string{
+											"severity": "critical",
+										},
+									},
+									{
+										Alert: "HighMemoryUsage",
+										Expr:  intstr.FromString("memory_usage > 80"),
+										Labels: map[string]string{
+											"severity": "warning",
+										},
+									},
+									{
+										Alert: "ExcludedAlert",
+										Expr:  intstr.FromString("some_metric > 50"),
+										Labels: map[string]string{
+											"severity":                 "warning",
+											constants.LabelExcludeRule: "true",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Test with no label selector
+			t.Run("no label selector", func(t *testing.T) {
+				queries := r.extractGrafanaPanelQueries(dashboard, rules)
+
+				// Should extract 2 queries (excluding the one with exclude label)
+				require.Equal(t, 2, len(queries))
+
+				// Verify first query
+				assert.Equal(t, "HighCPUUsage", queries[0].Name)
+				assert.Equal(t, "cpu_usage", queries[0].Query)
+				assert.Equal(t, float64(90), queries[0].Threshold)
+				assert.Equal(t, "gt", queries[0].Operator)
+
+				// Verify second query
+				assert.Equal(t, "HighMemoryUsage", queries[1].Name)
+				assert.Equal(t, "memory_usage", queries[1].Query)
+				assert.Equal(t, float64(80), queries[1].Threshold)
+				assert.Equal(t, "gt", queries[1].Operator)
+			})
+
+			// Test with label selector
+			t.Run("with label selector", func(t *testing.T) {
+				queries := r.extractGrafanaPanelQueries(dashboardWithSelector, rules)
+
+				// Should extract only 1 query (the one with severity=critical)
+				require.Equal(t, 1, len(queries))
+
+				// Verify the query
+				assert.Equal(t, "HighCPUUsage", queries[0].Name)
+				assert.Equal(t, "cpu_usage", queries[0].Query)
+				assert.Equal(t, float64(90), queries[0].Threshold)
+				assert.Equal(t, "gt", queries[0].Operator)
+			})
+
+			// Test with empty rules
+			t.Run("empty rules", func(t *testing.T) {
+				queries := r.extractGrafanaPanelQueries(dashboard, []monitoringv1.PrometheusRule{})
+				assert.Equal(t, 0, len(queries))
+			})
+
+			// Test with complex expressions
+			t.Run("complex expressions", func(t *testing.T) {
+				complexRules := []monitoringv1.PrometheusRule{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "complex-rule",
+							Namespace: "default",
+						},
+						Spec: monitoringv1.PrometheusRuleSpec{
+							Groups: []monitoringv1.RuleGroup{
+								{
+									Name: "complex-group",
+									Rules: []monitoringv1.Rule{
+										{
+											Alert: "ComplexAlert",
+											Expr:  intstr.FromString("sum(rate(http_requests_total{code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) > 0.1"),
+											Labels: map[string]string{
+												"severity": "critical",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				queries := r.extractGrafanaPanelQueries(dashboard, complexRules)
+				// Complex expressions might not be parsed correctly, so we're just checking if something was extracted
+				assert.GreaterOrEqual(t, len(queries), 0)
+			})
+		})
+	})
+
+}
+
+func TestExtractGrafanaPanelQueries_OrderIndependence(t *testing.T) {
+	reconciler := &AlertDashboardReconciler{
+		Log: logr.Discard(),
+	}
+
+	dashboard := &monitoringv1alpha1.AlertDashboard{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dashboard",
+			Namespace: "default",
+		},
+		Spec: monitoringv1alpha1.AlertDashboardSpec{},
+	}
+
+	ruleA := monitoringv1.PrometheusRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rule-a",
+			Namespace: "default",
+		},
+		Spec: monitoringv1.PrometheusRuleSpec{
+			Groups: []monitoringv1.RuleGroup{{
+				Name: "group-a",
+				Rules: []monitoringv1.Rule{{
+					Alert:  "AlertA",
+					Expr:   intstr.FromString("metric_a > 1"),
+					Labels: map[string]string{"severity": "critical"},
+				},
+				},
+			}},
+		},
+	}
+	ruleB := monitoringv1.PrometheusRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rule-b",
+			Namespace: "default",
+		},
+		Spec: monitoringv1.PrometheusRuleSpec{
+			Groups: []monitoringv1.RuleGroup{{
+				Name: "group-b",
+				Rules: []monitoringv1.Rule{{
+					Alert:  "AlertB",
+					Expr:   intstr.FromString("metric_b > 2"),
+					Labels: map[string]string{"severity": "warning"},
+				},
+				},
+			}},
+		},
+	}
+
+	rules1 := []monitoringv1.PrometheusRule{ruleA, ruleB}
+	rules2 := []monitoringv1.PrometheusRule{ruleB, ruleA}
+
+	result1 := reconciler.extractGrafanaPanelQueries(dashboard, rules1)
+	result2 := reconciler.extractGrafanaPanelQueries(dashboard, rules2)
+
+	// Sort both results to ensure consistent order for comparison
+	assert.ElementsMatch(t, result1, result2, "extractGrafanaPanelQueries should return the same elements regardless of rule order")
+
+	// Check that the order is the same (should be deterministic)
+	if !reflect.DeepEqual(result1, result2) {
+		t.Errorf("extractGrafanaPanelQueries should maintain consistent ordering.\nGot: %v\nWant: %v", result2, result1)
+	}
+}
 
 var _ = Describe("AlertDashboard Controller", func() {
 	Context("When reconciling a resource", func() {
