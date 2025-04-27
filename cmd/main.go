@@ -61,7 +61,7 @@ func main() {
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.IntVar(&verbosity, "v", -1, "Log level verbosity. "+
+	flag.IntVar(&verbosity, "v", 0, "Log level verbosity. "+
 		"-1 = debug and higher, 0 = info and higher, 1 = warn and higher, 2+ = error and higher")
 	opts := zap.Options{
 		Development: true,
