@@ -125,7 +125,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {
 	log := r.Log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
-
+	log.Info("deleting")
 	// Check if finalizer is present
 	if !utils.HasString(dashboard.Finalizers, dashboardFinalizer) {
 		return ctrl.Result{}, nil
