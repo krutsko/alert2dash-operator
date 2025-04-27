@@ -108,12 +108,12 @@ kubectl apply -f config/samples/monitoring_v1alpha1_alertdashboard.yaml
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/alert2dash-operator:tag
+make docker-build docker-push IMG=ghcr.io/krutsko/alert2dash-operator:tag
 ```
 
 Build image without pushing it to the registry:
 ```sh
-make docker-build IMG=<some-registry>/alert2dash-operator:tag
+make docker-build IMG=ghcr.io/krutsko/alert2dash-operator:tag
 ```
 
 **NOTE:** This image ought to be published in the personal registry you specified.
@@ -129,7 +129,13 @@ make install
 **Deploy the Manager to the cluster with the image specified by `IMG`:**
 
 ```sh
-make deploy IMG=<some-registry>/alert2dash-operator:tag
+make deploy IMG=ghcr.io/krutsko/alert2dash-operator:tag
+```
+
+**Load docker image to load kind cluster:**
+
+```sh
+kind load docker-image ghcr.io/krutsko/alert2dash-operator:tag -n <cluster>
 ```
 
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
@@ -143,6 +149,12 @@ kubectl apply -k config/samples/
 ```
 
 >**NOTE**: Ensure that the samples has default values to test it out.
+
+### Load helm chart
+
+```sh
+helm pull oci://ghcr.io/krutsko/helm-charts/alert2dash-operator
+```
 
 ### To Uninstall
 **Delete the instances (CRs) from the cluster:**
@@ -170,7 +182,7 @@ Following are the steps to build the installer and distribute this project to us
 1. Build the installer for the image built and published in the registry:
 
 ```sh
-make build-installer IMG=<some-registry>/alert2dash-operator:tag
+make build-installer IMG=ghcr.io/krutsko/alert2dash-operator:tag
 ```
 
 NOTE: The makefile target mentioned above generates an 'install.yaml'

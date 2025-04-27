@@ -22,6 +22,8 @@ type defaultConfigMapManager struct {
 }
 
 func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard, content []byte) error {
+	log := m.log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
+	log.Info("Updating ConfigMap")
 	configMapName := fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
 
 	// Check if ConfigMap exists
@@ -30,7 +32,7 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 
 	if err != nil {
 		// ConfigMap doesn't exist, create a new one
-		m.log.V(1).Info("ConfigMap not found, creating new one",
+		m.log.Info("ConfigMap not found, creating new one",
 			"name", configMapName,
 			"namespace", dashboard.Namespace)
 
@@ -57,7 +59,7 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 			return fmt.Errorf("failed to create ConfigMap %s: %w", configMapName, err)
 		}
 
-		m.log.V(1).Info("ConfigMap created successfully",
+		m.log.Info("ConfigMap created successfully",
 			"name", configMapName,
 			"namespace", dashboard.Namespace)
 		return nil
@@ -104,7 +106,7 @@ func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, d
 			return fmt.Errorf("failed to update ConfigMap %s: %w", configMapName, err)
 		}
 
-		m.log.V(1).Info("ConfigMap updated successfully",
+		m.log.Info("ConfigMap updated successfully",
 			"name", configMapName,
 			"namespace", dashboard.Namespace)
 	} else {

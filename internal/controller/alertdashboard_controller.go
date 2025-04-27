@@ -85,6 +85,7 @@ const dashboardFinalizer = "alert2dash.monitoring.krutsko/finalizer"
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get
 func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("alertdashboard", req.NamespacedName)
+	log.Info("starting reconciliation")
 
 	// Fetch the AlertDashboard instance
 	alertDashboard := &monitoringv1alpha1.AlertDashboard{}
@@ -123,8 +124,8 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {
-	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
-
+	log := r.Log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
+	log.Info("deleting")
 	// Check if finalizer is present
 	if !utils.HasString(dashboard.Finalizers, dashboardFinalizer) {
 		return ctrl.Result{}, nil
@@ -147,10 +148,10 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	ctx, cancel := context.WithTimeout(ctx, r.processingTimeout)
 	defer cancel()
 
-	log := r.Log.WithValues("dashboard", dashboard.Name, "namespace", dashboard.Namespace)
+	log := r.Log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
 
 	// Get matching PrometheusRules
-	log.Info("Fetching matching PrometheusRules")
+	log.V(1).Info("Fetching matching PrometheusRules")
 	rules, err := r.ruleManager.GetPrometheusRules(ctx, dashboard)
 	if err != nil {
 		log.Error(err, "Failed to list PrometheusRules")
@@ -175,12 +176,26 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 		}
 		return nil
 	}
-	log.Info("Found matching PrometheusRules", "count", len(rules))
+	log.V(1).Info("Found matching PrometheusRules", "count", len(rules))
+
+	// check if PrometheusRules rules hash changed for this dashboard , if not, skip update
+	ruleHash := computeRulesHash(rules)
+	if dashboard.Status.RulesHash == ruleHash {
+		r.Log.V(1).Info("Rules hash unchanged, skipping update",
+			"dashboard", dashboard.Name,
+			"namespace", dashboard.Namespace)
+		return nil
+	}
 
 	// Extract grafana panel queries from rules
 	log.Info("Extracting grafana panel queries from rules")
 	grafanaPanelQueries := r.extractGrafanaPanelQueries(dashboard, rules)
 	log.Info("Extracted grafana panel queries", "count", len(grafanaPanelQueries))
+
+	if len(grafanaPanelQueries) == 0 {
+		log.Info("No PrometheusRule found matching dashboard labels, skipping dashboard generation")
+		return nil
+	}
 
 	// Generate dashboard content
 	log.Info("Generating dashboard content")
@@ -191,26 +206,29 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	}
 
 	// Create or update ConfigMap
-	log.Info("Creating/updating ConfigMap")
 	if err := r.configMapManager.CreateOrUpdateConfigMap(ctx, dashboard, content); err != nil {
 		log.Error(err, "Failed to create/update ConfigMap")
 		return fmt.Errorf("failed to create/update ConfigMap: %w", err)
 	}
 
 	// Update status
-	log.Info("Updating dashboard status")
 	if err := r.updateDashboardStatus(ctx, dashboard, rules); err != nil {
 		log.Error(err, "Failed to update dashboard status")
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
-	log.Info("Successfully processed dashboard")
+	log.V(1).Info("Successfully processed dashboard")
 	return nil
 }
 
 // extractGrafanaPanelQueries extracts metrics information from PrometheusRules
 func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitoringv1alpha1.AlertDashboard, prometheusRules []monitoringv1.PrometheusRule) []model.GrafanaPanelQuery {
 	var grafanaPanelQueries []model.GrafanaPanelQuery
+
+	// sort rules by name for deterministic order
+	sort.Slice(prometheusRules, func(i, j int) bool {
+		return prometheusRules[i].Name < prometheusRules[j].Name
+	})
 
 	for _, rule := range prometheusRules {
 		for _, group := range rule.Spec.Groups {
@@ -249,7 +267,8 @@ func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitor
 func (r *AlertDashboardReconciler) updateDashboardStatus(ctx context.Context,
 	dashboard *monitoringv1alpha1.AlertDashboard,
 	rules []monitoringv1.PrometheusRule) error {
-
+	log := r.Log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
+	log.Info("Updating dashboard status")
 	observedRules := make([]string, 0, len(rules))
 	for _, rule := range rules {
 		observedRules = append(observedRules, rule.Name)
