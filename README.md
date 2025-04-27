@@ -138,6 +138,12 @@ make deploy IMG=ghcr.io/krutsko/alert2dash-operator:tag
 kind load docker-image ghcr.io/krutsko/alert2dash-operator:tag -n <cluster>
 ```
 
+**Load docker image to load kind cluster:**
+
+```sh
+kind load docker-image <some-registry>/alert2dash-operator:tag -n v1.23
+```
+
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
 privileges or be logged in as admin.
 
