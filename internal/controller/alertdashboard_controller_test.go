@@ -1299,6 +1299,252 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 	})
 })
 
+var _ = Describe("AlertDashboard Controller Error Cases", func() {
+	Context("When handling errors during reconciliation", func() {
+		const resourceName = "test-resource-error-cases"
+
+		ctx := context.Background()
+		namespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			// Ensure no existing resources
+			By("ensuring no existing resources")
+			Eventually(func() error {
+				alertDashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, alertDashboard)
+				if err == nil || !errors.IsNotFound(err) {
+					return fmt.Errorf("AlertDashboard still exists or error: %v", err)
+				}
+				return nil
+			}, "30s", "1s").Should(Succeed())
+		})
+
+		It("should handle errors when fetching AlertDashboard", func() {
+			By("creating a reconciler with a failing client")
+			failingClient := &failingClient{
+				Client:   k8sClient,
+				getError: fmt.Errorf("simulated get error"),
+			}
+			reconciler := NewAlertDashboardReconciler(
+				failingClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			By("triggering reconciliation with failing client")
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated get error"))
+			Expect(result.Requeue).To(BeFalse())
+		})
+
+		It("should handle errors when updating AlertDashboard status", func() {
+			By("creating a test dashboard")
+			dashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Namespace:  "default",
+					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
+
+			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
+			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
+
+			By("creating a reconciler with a failing status client")
+			failingClient := &failingClient{
+				Client:      k8sClient,
+				statusError: fmt.Errorf("simulated status update error"),
+			}
+			reconciler := NewAlertDashboardReconciler(
+				failingClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			By("triggering reconciliation with failing status client")
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated status update error"))
+			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
+		})
+
+		It("should handle errors when creating ConfigMap", func() {
+			By("creating a test dashboard")
+			dashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Namespace:  "default",
+					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
+			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
+			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
+
+			By("creating a reconciler with a failing create client")
+			failingClient := &failingClient{
+				Client:      k8sClient,
+				createError: fmt.Errorf("simulated create error"),
+			}
+			reconciler := NewAlertDashboardReconciler(
+				failingClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			By("triggering reconciliation with failing create client")
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated create error"))
+			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
+		})
+
+		It("should handle errors when updating ConfigMap", func() {
+			By("creating a test dashboard")
+			dashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Namespace:  "default",
+					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
+
+			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
+			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
+
+			By("creating a ConfigMap for the dashboard")
+			configMapName := fmt.Sprintf("grafana-dashboard-%s", resourceName)
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      configMapName,
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.LabelGrafanaDashboard: "1",
+						constants.LabelDashboardName:    resourceName,
+					},
+				},
+				Data: map[string]string{
+					resourceName + ".json": "{\"dashboard\": \"test\"}",
+				},
+			}
+
+			// Set owner reference
+			Expect(ctrl.SetControllerReference(dashboard, configMap, k8sClient.Scheme())).To(Succeed())
+			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
+
+			By("creating a reconciler with a failing update client")
+			failingClient := &failingClient{
+				Client:      k8sClient,
+				updateError: fmt.Errorf("simulated update error"),
+			}
+			reconciler := NewAlertDashboardReconciler(
+				failingClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			By("triggering reconciliation with failing update client")
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("simulated update error"))
+			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
+		})
+
+		AfterEach(func() {
+			By("cleaning up all ConfigMaps")
+			configMap := &corev1.ConfigMap{}
+			// Clean up the main configmap
+			err := handleResourceDeletion(ctx, k8sClient, configMap, types.NamespacedName{
+				Name:      "grafana-dashboard-" + resourceName,
+				Namespace: "default",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("cleaning up test resources")
+			dashboard := &monitoringv1alpha1.AlertDashboard{}
+			Expect(handleResourceDeletion(ctx, k8sClient, dashboard, namespacedName)).To(Succeed())
+		})
+	})
+})
+
+// failingClient is a test client that can be configured to fail specific operations
+type failingClient struct {
+	client.Client
+	getError    error
+	createError error
+	updateError error
+	statusError error
+}
+
+func (c *failingClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if c.getError != nil {
+		return c.getError
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func (c *failingClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if c.createError != nil {
+		return c.createError
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func (c *failingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if c.updateError != nil {
+		return c.updateError
+	}
+	return c.Client.Update(ctx, obj, opts...)
+}
+
+func (c *failingClient) Status() client.SubResourceWriter {
+	return &failingStatusWriter{
+		SubResourceWriter: c.Client.Status(),
+		statusError:       c.statusError,
+	}
+}
+
+type failingStatusWriter struct {
+	client.SubResourceWriter
+	statusError error
+}
+
+func (w *failingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if w.statusError != nil {
+		return w.statusError
+	}
+	return w.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
 func removeFinalizers(ctx context.Context, c client.Client, obj client.Object) error {
 	// Create a patch from the original object
 	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
