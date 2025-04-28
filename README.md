@@ -10,7 +10,7 @@ Alert2Dash is a Kubernetes Operator that automatically generates Grafana dashboa
 ## Key Features
 
 - **Automatic Dashboard Generation**: Convert PrometheusRules directly into meaningful Grafana dashboards
-- **Zero-Drift Guarantee**: Dashboards automatically update when alert definitions change 
+- **Zero-Drift Guarantee**: Dashboards automatically update when alert definitions change
 - **Template Support**: Use custom Jsonnet templates for advanced dashboard customization: panel sizes, and grouping etc.
 - **Kubernetes-Native**: Fully integrated with Kubernetes resource model and lifecycle management
 
