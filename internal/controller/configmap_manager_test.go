@@ -170,4 +170,155 @@ func TestConfigMapManager(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, configMap.ResourceVersion, updatedConfigMap.ResourceVersion)
 	})
+
+	t.Run("should update ConfigMap with missing labels", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		// Create a ConfigMap without required labels
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard",
+				Namespace: "default",
+			},
+			Data: map[string]string{
+				"test-dashboard.json": `{"test": "data"}`,
+			},
+		}
+		require.NoError(t, client.Create(context.Background(), configMap))
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dashboard",
+				Namespace: "default",
+			},
+			Spec: monitoringv1alpha1.AlertDashboardSpec{
+				DashboardConfig: monitoringv1alpha1.DashboardConfig{
+					ConfigMapNamePrefix: "grafana-dashboard",
+				},
+			},
+		}
+
+		content := []byte(`{"test": "data"}`)
+		err := manager.CreateOrUpdateConfigMap(context.Background(), dashboard, content)
+		require.NoError(t, err)
+
+		// Verify labels were added
+		updatedConfigMap := &corev1.ConfigMap{}
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard",
+			Namespace: "default",
+		}, updatedConfigMap)
+		require.NoError(t, err)
+		assert.Equal(t, "1", updatedConfigMap.Labels[constants.LabelGrafanaDashboard])
+		assert.Equal(t, "test-dashboard", updatedConfigMap.Labels[constants.LabelDashboardName])
+	})
+
+	t.Run("should update ConfigMap with missing owner reference", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		// Create a ConfigMap without owner reference
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
+				},
+			},
+			Data: map[string]string{
+				"test-dashboard.json": `{"test": "data"}`,
+			},
+		}
+		require.NoError(t, client.Create(context.Background(), configMap))
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dashboard",
+				Namespace: "default",
+				UID:       "test-uid",
+			},
+			Spec: monitoringv1alpha1.AlertDashboardSpec{
+				DashboardConfig: monitoringv1alpha1.DashboardConfig{
+					ConfigMapNamePrefix: "grafana-dashboard",
+				},
+			},
+		}
+
+		content := []byte(`{"test": "data"}`)
+		err := manager.CreateOrUpdateConfigMap(context.Background(), dashboard, content)
+		require.NoError(t, err)
+
+		// Verify owner reference was added
+		updatedConfigMap := &corev1.ConfigMap{}
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard",
+			Namespace: "default",
+		}, updatedConfigMap)
+		require.NoError(t, err)
+		require.Len(t, updatedConfigMap.OwnerReferences, 1)
+		assert.Equal(t, dashboard.Name, updatedConfigMap.OwnerReferences[0].Name)
+		assert.Equal(t, string(dashboard.UID), string(updatedConfigMap.OwnerReferences[0].UID))
+	})
+
+	t.Run("should handle ConfigMap with nil Data map", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		// Create a ConfigMap with nil Data map
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
+				},
+			},
+		}
+		require.NoError(t, client.Create(context.Background(), configMap))
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dashboard",
+				Namespace: "default",
+			},
+			Spec: monitoringv1alpha1.AlertDashboardSpec{
+				DashboardConfig: monitoringv1alpha1.DashboardConfig{
+					ConfigMapNamePrefix: "grafana-dashboard",
+				},
+			},
+		}
+
+		content := []byte(`{"test": "data"}`)
+		err := manager.CreateOrUpdateConfigMap(context.Background(), dashboard, content)
+		require.NoError(t, err)
+
+		// Verify Data map was initialized and updated
+		updatedConfigMap := &corev1.ConfigMap{}
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard",
+			Namespace: "default",
+		}, updatedConfigMap)
+		require.NoError(t, err)
+		assert.NotNil(t, updatedConfigMap.Data)
+		assert.Equal(t, string(content), updatedConfigMap.Data["test-dashboard.json"])
+	})
 }

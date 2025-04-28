@@ -5,15 +5,31 @@
 [![codecov](https://codecov.io/gh/krutsko/alert2dash-operator/branch/main/graph/badge.svg)](https://codecov.io/gh/krutsko/alert2dash-operator)
 </div>
 
-The Alert2Dash Operator is a Kubernetes operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards.
+Alert2Dash is a Kubernetes Operator that automatically generates Grafana dashboards from Prometheus alerting rules. It simplifies the process of visualizing and monitoring your alerts by creating customized dashboards that stay synchronized with your alerting definitions.
+
+## Key Features
+
+- **Automatic Dashboard Generation**: Convert PrometheusRules directly into meaningful Grafana dashboards
+- **Zero-Drift Guarantee**: Dashboards automatically update when alert definitions change
+- **Template Support**: Use custom Jsonnet templates for advanced dashboard customization: panel sizes, and grouping etc.
+- **Kubernetes-Native**: Fully integrated with Kubernetes resource model and lifecycle management
 
 > **Note:** This operator is designed to work alongside:
 > - [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) - for managing Prometheus rules and alerts
 > - [grafana-operator](https://github.com/grafana-operator/grafana-operator) - for managing Grafana dashboards
 
-## How it works
 
-The Alert2Dash Operator works by monitoring PrometheusRule resources in your cluster. When an AlertDashboard custom resource is created, it uses label selectors to identify relevant PrometheusRules, extracts metrics from their alert expressions, and generates dashboard JSON. This JSON is stored in ConfigMaps which the Grafana Operator transforms into actual dashboards in Grafana. The process is fully automated, keeping your dashboards synchronized with your alerting definitions.
+## How It Works
+
+Alert2Dash Operator follows a Kubernetes-native approach:
+
+1. It monitors PrometheusRule resources in your cluster
+2. When an AlertDashboard custom resource is created, it uses label selectors to identify relevant PrometheusRules
+3. It extracts metrics from alert expressions and analyzes their query patterns
+4. It generates dashboard JSON using predefined template
+5. The generated JSON is stored in ConfigMaps with proper labels
+6. The Grafana Operator detects these ConfigMaps and creates actual dashboards in Grafana
+
 
 Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator:
 
@@ -43,13 +59,43 @@ Here's the diagram with Grafana Dashboards as output boxes from Grafana Operator
 
 ```
 
-## Features
 
-- Automatic dashboard generation from PrometheusRules
-- Configurable dashboard layouts and panels
-- Support for custom Jsonnet templates
-- Grafana folder organization
-- Kubernetes-native deployment and configuration
+
+## AlertDashboard Custom Resource Definition
+
+Here's an example of an AlertDashboard custom resource that creates a dashboard for a specific team:
+
+```yaml
+apiVersion: monitoring.krutsko.com/v1alpha1
+kind: AlertDashboard
+metadata:
+  name: team-foo
+  namespace: monitoring
+spec:
+  # Selector for the team's alerts
+  metadataLabelSelector:
+    matchLabels:
+      team: foo
+  # Selector for the alert rules to include
+  ruleLabelSelector:
+    matchLabels:
+      severity: critical
+  dashboardConfig:
+    configMapNamePrefix: "grafana-dashboard"
+```
+
+This example:
+- Creates a dashboard named "team-foo" in the monitoring namespace
+- Selects alerts specifically for Team Foo using the `team` label
+- Includes only critical severity alerts
+- Creates ConfigMaps with the prefix "grafana-dashboard"
+
+The operator will automatically:
+1. Find all PrometheusRules with matching labels
+2. Extract metrics from alert expressions
+3. Generate a Grafana dashboard
+4. Create a ConfigMap with the dashboard JSON
+5. The Grafana Operator will then create the actual dashboard in Grafana
 
 ## Installation
 
@@ -118,7 +164,7 @@ make docker-build IMG=ghcr.io/krutsko/alert2dash-operator:tag
 
 **NOTE:** This image ought to be published in the personal registry you specified.
 And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+Make sure you have the proper permission to the registry if the above commands don't work.
 
 **Install the CRDs into the cluster:**
 
