@@ -117,10 +117,11 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Process the dashboard
 	if err := r.processDashboard(ctx, alertDashboard); err != nil {
 		log.Error(err, "Failed to process dashboard")
-		return ctrl.Result{RequeueAfter: time.Second * 10}, err
+		return ctrl.Result{RequeueAfter: RequeueDelay}, err
 	}
 
-	return ctrl.Result{}, nil
+	// todo : add ResyncPeriod to spec
+	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
 func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {
