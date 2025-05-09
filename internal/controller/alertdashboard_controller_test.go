@@ -1297,7 +1297,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			})).To(Succeed())
 		})
 
-		It("should not recreate ConfigMap when it is manually deleted", func() {
+		It("should recreate ConfigMap when it is manually deleted", func() {
 			const resourceName = "test-resource-manual-deletion"
 
 			ctx := context.Background()
@@ -1417,12 +1417,8 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			dashboard := &monitoringv1alpha1.AlertDashboard{}
 			Expect(k8sClient.Get(ctx, namespacedName, dashboard)).To(Succeed())
 
-			By("collecting current state for debug")
-
-			// Modify the status to trigger a reconciliation but maintain hash
+			// save the hash
 			originalHash := dashboard.Status.RulesHash
-			// dashboard.Status.ObservedGeneration = dashboard.Generation - 1 // Force a difference
-			// Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
 
 			By("triggering third reconciliation after ConfigMap deletion")
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
@@ -1430,12 +1426,12 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying ConfigMap was NOT recreated")
-			// Wait a bit to ensure there's time for a potential recreation
-			Consistently(func() bool {
-				err := k8sClient.Get(ctx, configMapName, &corev1.ConfigMap{})
-				return errors.IsNotFound(err)
-			}, "5s", "1s").Should(BeTrue(), "ConfigMap should not be recreated after manual deletion")
+			By("verifying ConfigMap was recreated")
+			Eventually(func() bool {
+				configMap := &corev1.ConfigMap{}
+				err := k8sClient.Get(ctx, configMapName, configMap)
+				return err == nil
+			}, "10s", "1s").Should(BeTrue(), "ConfigMap should be recreated after manual deletion")
 
 			// Additional check: verify the controller processed the reconciliation
 			// (hash should be the same if rules haven't changed)
