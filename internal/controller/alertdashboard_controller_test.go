@@ -1296,6 +1296,157 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 				Namespace: "default",
 			})).To(Succeed())
 		})
+
+		It("should recreate ConfigMap when it is manually deleted", func() {
+			const resourceName = "test-resource-manual-deletion"
+
+			ctx := context.Background()
+			namespacedName := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
+			}
+
+			By("creating test PrometheusRule with matching labels")
+			duration := monitoringv1.Duration("5m")
+			prometheusRule := &monitoringv1.PrometheusRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-rule-manual-deletion",
+					Namespace: "default",
+					Labels: map[string]string{
+						"app":                "test-app",
+						"generate-dashboard": "true",
+					},
+				},
+				Spec: monitoringv1.PrometheusRuleSpec{
+					Groups: []monitoringv1.RuleGroup{
+						{
+							Name: "test.rules",
+							Rules: []monitoringv1.Rule{
+								{
+									Alert: "HighErrorRate",
+									Expr:  intstr.FromString("sum(rate(http_requests_total{code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) > 0.1"),
+									For:   &duration,
+									Labels: map[string]string{
+										"severity": "warning",
+										"team":     "dreamteam",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, prometheusRule)).To(Succeed())
+
+			By("creating the AlertDashboard resource")
+			alertDashboard := &monitoringv1alpha1.AlertDashboard{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: monitoringv1alpha1.AlertDashboardSpec{
+					MetadataLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app":                "test-app",
+							"generate-dashboard": "true",
+						},
+					},
+					RuleLabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"team": "dreamteam",
+						},
+					},
+					DashboardConfig: monitoringv1alpha1.DashboardConfig{
+						ConfigMapNamePrefix: "grafana-dashboard",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, alertDashboard)).To(Succeed())
+
+			reconciler := NewAlertDashboardReconciler(
+				k8sClient,
+				k8sClient.Scheme(),
+				ctrl.Log.WithName("controllers").WithName("test"),
+			)
+
+			By("triggering first reconciliation to add finalizer")
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for finalizer to be added")
+			Eventually(func() bool {
+				dashboard := &monitoringv1alpha1.AlertDashboard{}
+				err := k8sClient.Get(ctx, namespacedName, dashboard)
+				if err != nil {
+					return false
+				}
+				return utils.HasString(dashboard.Finalizers, dashboardFinalizer)
+			}, "10s", "1s").Should(BeTrue())
+
+			By("triggering second reconciliation to create ConfigMap")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ConfigMap was created")
+			configMapName := types.NamespacedName{
+				Name:      "grafana-dashboard-" + resourceName,
+				Namespace: "default",
+			}
+
+			Eventually(func() error {
+				configMap := &corev1.ConfigMap{}
+				return k8sClient.Get(ctx, configMapName, configMap)
+			}, "10s", "1s").Should(Succeed())
+
+			By("manually deleting the ConfigMap")
+			configMap := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, configMapName, configMap)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, configMap)).To(Succeed())
+
+			By("waiting for ConfigMap to be fully deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, configMapName, &corev1.ConfigMap{})
+				return errors.IsNotFound(err)
+			}, "10s", "1s").Should(BeTrue())
+
+			// Check the status to see if there's a last applied hash that would prevent recreation
+			dashboard := &monitoringv1alpha1.AlertDashboard{}
+			Expect(k8sClient.Get(ctx, namespacedName, dashboard)).To(Succeed())
+
+			// save the hash
+			originalHash := dashboard.Status.RulesHash
+
+			By("triggering third reconciliation after ConfigMap deletion")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: namespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ConfigMap was recreated")
+			Eventually(func() bool {
+				configMap := &corev1.ConfigMap{}
+				err := k8sClient.Get(ctx, configMapName, configMap)
+				return err == nil
+			}, "10s", "1s").Should(BeTrue(), "ConfigMap should be recreated after manual deletion")
+
+			// Additional check: verify the controller processed the reconciliation
+			// (hash should be the same if rules haven't changed)
+			updatedDashboard := &monitoringv1alpha1.AlertDashboard{}
+			Expect(k8sClient.Get(ctx, namespacedName, updatedDashboard)).To(Succeed())
+			Expect(updatedDashboard.Status.RulesHash).To(Equal(originalHash),
+				"Rules hash should remain the same after reconciliation")
+
+			By("cleaning up test resources")
+			Expect(handleResourceDeletion(ctx, k8sClient, prometheusRule, types.NamespacedName{
+				Name:      "test-rule-manual-deletion",
+				Namespace: "default",
+			})).To(Succeed())
+			Expect(handleResourceDeletion(ctx, k8sClient, alertDashboard, namespacedName)).To(Succeed())
+		})
 	})
 })
 

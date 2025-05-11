@@ -117,10 +117,10 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Process the dashboard
 	if err := r.processDashboard(ctx, alertDashboard); err != nil {
 		log.Error(err, "Failed to process dashboard")
-		return ctrl.Result{RequeueAfter: time.Second * 10}, err
+		return ctrl.Result{RequeueAfter: RequeueDelay}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: alertDashboard.Spec.ResyncPeriod.Duration}, nil
 }
 
 func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {
@@ -178,10 +178,24 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	}
 	log.V(1).Info("Found matching PrometheusRules", "count", len(rules))
 
-	// check if PrometheusRules rules hash changed for this dashboard , if not, skip update
+	// Check if ConfigMap exists
+	configMapName := fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
+	configMap := &corev1.ConfigMap{}
+	configMapExists := true
+	if err := r.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: dashboard.Namespace}, configMap); err != nil {
+		if kuberr.IsNotFound(err) {
+			configMapExists = false
+			log.Info("ConfigMap does not exist, will create it", "configMapName", configMapName)
+		} else {
+			log.Error(err, "Failed to check if ConfigMap exists")
+			return fmt.Errorf("failed to check if ConfigMap exists: %w", err)
+		}
+	}
+
+	// check if PrometheusRules rules hash changed for this dashboard, if not and ConfigMap exists, skip update
 	ruleHash := computeRulesHash(rules)
-	if dashboard.Status.RulesHash == ruleHash {
-		r.Log.V(1).Info("Rules hash unchanged, skipping update",
+	if dashboard.Status.RulesHash == ruleHash && configMapExists {
+		r.Log.V(1).Info("Rules hash unchanged and ConfigMap exists, skipping update",
 			"dashboard", dashboard.Name,
 			"namespace", dashboard.Namespace)
 		return nil
