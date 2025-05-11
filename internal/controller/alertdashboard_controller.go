@@ -120,8 +120,7 @@ func (r *AlertDashboardReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: RequeueDelay}, err
 	}
 
-	// todo : add ResyncPeriod to spec
-	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	return ctrl.Result{RequeueAfter: alertDashboard.Spec.ResyncPeriod.Duration}, nil
 }
 
 func (r *AlertDashboardReconciler) handleDeletion(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard) (ctrl.Result, error) {

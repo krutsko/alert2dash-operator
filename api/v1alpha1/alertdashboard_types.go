@@ -29,6 +29,13 @@ type AlertDashboardSpec struct {
 	// Optional: Custom Jsonnet template used to generate the dashboard
 	// +optional
 	CustomJsonnetTemplate string `json:"customJsonnetTemplate,omitempty"`
+
+	// How often the resource is synced, defaults to 10m0s if not set
+	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:default="10m0s"
+	ResyncPeriod metav1.Duration `json:"resyncPeriod,omitempty"`
 }
 
 type DashboardConfig struct {
