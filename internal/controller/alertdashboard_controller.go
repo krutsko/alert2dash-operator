@@ -405,11 +405,7 @@ func (r *AlertDashboardReconciler) getGrafanaThresholdOperator(op parser.ItemTyp
 }
 
 func (r *AlertDashboardReconciler) sanitizeExpr(expr string, threshold string, operator parser.ItemType) model.ParsedQueryResult {
-	// Remove surrounding parentheses if they exist
 	expr = strings.TrimSpace(expr)
-	for len(expr) > 2 && expr[0] == '(' && expr[len(expr)-1] == ')' {
-		expr = strings.TrimSpace(expr[1 : len(expr)-1])
-	}
 
 	thresholdFloat, err := strconv.ParseFloat(threshold, 64)
 	if err != nil {
