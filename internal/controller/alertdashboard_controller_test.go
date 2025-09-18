@@ -1828,7 +1828,7 @@ func TestSanitizeExpr(t *testing.T) {
 			threshold: "50.5",
 			operator:  parser.LSS,
 			want: model.ParsedQueryResult{
-				Query:     "rate(http_requests_total[5m])",
+				Query:     "(rate(http_requests_total[5m]))", // as is
 				Threshold: 50.5,
 				Operator:  "lt",
 			},
@@ -1846,7 +1846,7 @@ func TestSanitizeExpr(t *testing.T) {
 			threshold: "75",
 			operator:  parser.GTE,
 			want: model.ParsedQueryResult{
-				Query:     "rate(http_requests_total[5m])",
+				Query:     "(((rate(http_requests_total[5m]))))", // as is
 				Threshold: 75,
 				Operator:  "gt",
 			},

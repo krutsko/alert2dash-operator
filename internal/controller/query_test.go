@@ -149,6 +149,11 @@ func TestExtractBaseQuery(t *testing.T) {
 			expr:     "metric_a > sum(metric_b) / count(metric_b)",
 			expected: []model.ParsedQueryResult{},
 		},
+		{
+			name:     "container memory usage with division and grouping",
+			expr:     `(container_memory_working_set_bytes{container="sidecar"}) / on (namespace, pod, container) (kube_pod_container_resource_requests{container="sidecar",job="kube-state-metrics",resource="memory"}) > 0.6`,
+			expected: []model.ParsedQueryResult{{Query: `(container_memory_working_set_bytes{container="sidecar"}) / on (namespace, pod, container) (kube_pod_container_resource_requests{container="sidecar",job="kube-state-metrics",resource="memory"})`, Threshold: 0.6, Operator: "gt"}},
+		},
 	}
 
 	r := &AlertDashboardReconciler{}
