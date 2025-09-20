@@ -394,10 +394,12 @@ func isComparisonOperator(op parser.ItemType) bool {
 
 func (r *AlertDashboardReconciler) getGrafanaThresholdOperator(op parser.ItemType) string {
 	switch op {
-	case parser.EQL, parser.NEQ, parser.GTR, parser.GTE, parser.EQLC:
+	case parser.GTR, parser.GTE:
 		return "gt"
-	case parser.LTE, parser.LSS:
+	case parser.LSS, parser.LTE:
 		return "lt"
+	case parser.EQL, parser.NEQ, parser.EQLC:
+		return "gt" // Default to gt for equality operators
 	default:
 		r.Log.Error(fmt.Errorf("unsupported operator: %s", op), "Unsupported operator fallback to gt")
 		return "gt"

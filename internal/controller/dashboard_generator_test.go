@@ -77,6 +77,140 @@ func TestDashboardGenerator(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("GenerateDashboard with floor alert (lt operator)", func(t *testing.T) {
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			Spec: monitoringv1alpha1.AlertDashboardSpec{},
+		}
+		dashboard.Name = "floor-alert-dashboard"
+
+		metrics := []model.GrafanaPanelQuery{
+			{
+				Name:      "CacheHitRatio",
+				Query:     "cache_hit_ratio{app=\"myapp-persistence\"}",
+				Threshold: 60.0,
+				Operator:  "lt", // Floor alert: values < 60 are critical
+			},
+		}
+
+		result, err := generator.GenerateDashboard(dashboard, metrics)
+		require.NoError(t, err)
+		assert.NotEmpty(t, result)
+
+		// Verify the generated JSON contains the correct threshold configuration for floor alerts
+		resultStr := string(result)
+		assert.Contains(t, resultStr, "floor-alert-dashboard")
+		assert.Contains(t, resultStr, "CacheHitRatio")
+		assert.Contains(t, resultStr, "cache_hit_ratio{app=\\\"myapp-persistence\\\"}")
+
+		// For floor alerts (lt operator), red should be at null (everything below threshold)
+		// and green should be at the threshold value
+		// Test the complete threshold structure in both places (thresholds and fieldConfig)
+		expectedFloorThreshold := `"thresholds": {
+        "mode": "absolute",
+        "steps": [
+          {
+            "color": "red",
+            "value": null
+          },
+          {
+            "color": "green",
+            "value": 60
+          }
+        ]
+      }`
+		expectedFloorFieldConfig := `"fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 60
+              }
+            ]
+          }
+        }
+      }`
+		assert.Contains(t, resultStr, expectedFloorThreshold)
+		assert.Contains(t, resultStr, expectedFloorFieldConfig)
+	})
+
+	t.Run("GenerateDashboard with ceiling alert (gt operator)", func(t *testing.T) {
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			Spec: monitoringv1alpha1.AlertDashboardSpec{},
+		}
+		dashboard.Name = "ceiling-alert-dashboard"
+
+		metrics := []model.GrafanaPanelQuery{
+			{
+				Name:      "HighCPUUsage",
+				Query:     "cpu_usage_percent",
+				Threshold: 80.0,
+				Operator:  "gt", // Ceiling alert: values > 80 are critical
+			},
+		}
+
+		result, err := generator.GenerateDashboard(dashboard, metrics)
+		require.NoError(t, err)
+		assert.NotEmpty(t, result)
+
+		// Verify the generated JSON contains the correct threshold configuration for ceiling alerts
+		resultStr := string(result)
+		assert.Contains(t, resultStr, "ceiling-alert-dashboard")
+		assert.Contains(t, resultStr, "HighCPUUsage")
+		assert.Contains(t, resultStr, "cpu_usage_percent")
+
+		// For ceiling alerts (gt operator), green should be at null (everything below threshold)
+		// and red should be at the threshold value
+		// Test the complete threshold structure in both places (thresholds and fieldConfig)
+		expectedCeilingThreshold := `"thresholds": {
+        "mode": "absolute",
+        "steps": [
+          {
+            "color": "green",
+            "value": null
+          },
+          {
+            "color": "red",
+            "value": 80
+          }
+        ]
+      }`
+		expectedCeilingFieldConfig := `"fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        }
+      }`
+		assert.Contains(t, resultStr, expectedCeilingThreshold)
+		assert.Contains(t, resultStr, expectedCeilingFieldConfig)
+	})
+
 	t.Run("GenerateDashboard with empty metrics JSON", func(t *testing.T) {
 		dashboard := &monitoringv1alpha1.AlertDashboard{
 			Spec: monitoringv1alpha1.AlertDashboardSpec{},
