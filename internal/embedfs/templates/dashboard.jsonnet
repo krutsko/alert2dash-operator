@@ -48,7 +48,16 @@ dashboard.new(
           y: index * 8
         },
         thresholds: {
-          steps: [
+          steps: if metric.operator == 'lt' then [
+            {
+              color: 'red',
+              value: null
+            },
+            {
+              color: 'green',
+              value: metric.threshold
+            }
+          ] else [
             {
               color: 'green',
               value: null
@@ -64,7 +73,16 @@ dashboard.new(
           defaults: {
             thresholds: {
               mode: 'absolute',
-              steps: [
+              steps: if metric.operator == 'lt' then [
+                {
+                  color: 'red',
+                  value: null
+                },
+                {
+                  color: 'green',
+                  value: metric.threshold
+                }
+              ] else [
                 {
                   color: 'green',
                   value: null
