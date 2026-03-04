@@ -130,6 +130,8 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
 
   build:
     runs-on: ubuntu-latest
