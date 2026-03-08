@@ -58,7 +58,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
 			By("creating an AlertDashboard that selects the rule")
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, nil)
 			Expect(k8sClient.Create(testCtx, dashboard)).To(Succeed())
@@ -95,7 +95,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			})
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, nil)
 			Expect(k8sClient.Create(testCtx, dashboard)).To(Succeed())
@@ -157,7 +157,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
 			By("creating an AlertDashboard that selects only critical alerts")
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"severity": "critical"},
@@ -193,7 +193,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
 			By("creating an AlertDashboard selecting a different app label")
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, nil)
 			Expect(k8sClient.Create(testCtx, dashboard)).To(Succeed())
@@ -245,7 +245,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			})
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, nil)
 			Expect(k8sClient.Create(testCtx, dashboard)).To(Succeed())
@@ -278,7 +278,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 			})
 			Expect(k8sClient.Create(testCtx, rule)).To(Succeed())
 
-			dashboard := alertDashboard(ns,&metav1.LabelSelector{
+			dashboard := alertDashboard(ns, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "svc"},
 			}, nil)
 			Expect(k8sClient.Create(testCtx, dashboard)).To(Succeed())
