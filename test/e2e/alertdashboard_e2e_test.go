@@ -7,6 +7,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -204,12 +205,7 @@ var _ = Describe("AlertDashboard E2E", func() {
 				if err := k8sClient.Get(testCtx, types.NamespacedName{Name: dashboard.Name, Namespace: ns}, d); err != nil {
 					return false
 				}
-				for _, f := range d.Finalizers {
-					if f == "alert2dash.monitoring.krutsko/finalizer" {
-						return true
-					}
-				}
-				return false
+				return slices.Contains(d.Finalizers, "alert2dash.monitoring.krutsko/finalizer")
 			}, timeout, interval).Should(BeTrue())
 
 			By("verifying no ConfigMap is created")

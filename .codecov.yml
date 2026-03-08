@@ -6,6 +6,6 @@ coverage:
     project:
       default:
         # 'auto' compares coverage against the base commit
-        target: auto 
+        target: auto
         # Allows coverage to drop by up to 1% without failing the check
         threshold: 1%
