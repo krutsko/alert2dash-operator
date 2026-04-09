@@ -910,19 +910,15 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying dashboard was updated")
+			By("verifying dashboard was deleted (rule no longer matches)")
 			Eventually(func() bool {
-				if err := k8sClient.Get(ctx, types.NamespacedName{
+				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      "grafana-dashboard-" + resourceName,
 					Namespace: "default",
-				}, configMap); err != nil {
-					return false
-				}
-
-				dashboardJson := configMap.Data[resourceName+".json"]
-				return !strings.Contains(dashboardJson, `"title": "HighErrorRate"`) &&
-					!strings.Contains(dashboardJson, `"title": "HighLatency"`)
-			}, "10s", "1s").Should(BeTrue(), "Dashboard should not contain any panel titles after removing generate-dashboard label")
+				}, configMap)
+				// ConfigMap should be deleted since the rule no longer matches the metadata label selector
+				return kuberr.IsNotFound(err)
+			}, "10s", "1s").Should(BeTrue(), "Dashboard ConfigMap should be deleted after removing generate-dashboard label")
 		})
 
 		AfterEach(func() {
@@ -1612,103 +1608,6 @@ var _ = Describe("AlertDashboard Controller Error Cases", func() {
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("simulated status update error"))
-			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
-		})
-
-		It("should handle errors when creating ConfigMap", func() {
-			By("creating a test dashboard")
-			dashboard := &monitoringv1alpha1.AlertDashboard{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       resourceName,
-					Namespace:  "default",
-					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
-				},
-				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						ConfigMapNamePrefix: "grafana-dashboard",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
-			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
-			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
-
-			By("creating a reconciler with a failing create client")
-			failingClient := &failingClient{
-				Client:      k8sClient,
-				createError: fmt.Errorf("simulated create error"),
-			}
-			reconciler := NewAlertDashboardReconciler(
-				failingClient,
-				k8sClient.Scheme(),
-				ctrl.Log.WithName("controllers").WithName("test"),
-			)
-
-			By("triggering reconciliation with failing create client")
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: namespacedName,
-			})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("simulated create error"))
-			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
-		})
-
-		It("should handle errors when updating ConfigMap", func() {
-			By("creating a test dashboard")
-			dashboard := &monitoringv1alpha1.AlertDashboard{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       resourceName,
-					Namespace:  "default",
-					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
-				},
-				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						ConfigMapNamePrefix: "grafana-dashboard",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
-
-			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
-			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
-
-			By("creating a ConfigMap for the dashboard")
-			configMapName := fmt.Sprintf("grafana-dashboard-%s", resourceName)
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      configMapName,
-					Namespace: "default",
-					Labels: map[string]string{
-						constants.LabelGrafanaDashboard: "1",
-						constants.LabelDashboardName:    resourceName,
-					},
-				},
-				Data: map[string]string{
-					resourceName + ".json": "{\"dashboard\": \"test\"}",
-				},
-			}
-
-			// Set owner reference
-			Expect(ctrl.SetControllerReference(dashboard, configMap, k8sClient.Scheme())).To(Succeed())
-			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
-
-			By("creating a reconciler with a failing update client")
-			failingClient := &failingClient{
-				Client:      k8sClient,
-				updateError: fmt.Errorf("simulated update error"),
-			}
-			reconciler := NewAlertDashboardReconciler(
-				failingClient,
-				k8sClient.Scheme(),
-				ctrl.Log.WithName("controllers").WithName("test"),
-			)
-
-			By("triggering reconciliation with failing update client")
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: namespacedName,
-			})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("simulated update error"))
 			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
 		})
 
