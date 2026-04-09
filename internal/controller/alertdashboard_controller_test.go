@@ -18,7 +18,6 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/errors"
 	kuberr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -310,7 +309,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 			Eventually(func() error {
 				alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 				err := k8sClient.Get(ctx, namespacedName, alertDashboard)
-				if err == nil || !errors.IsNotFound(err) {
+				if err == nil || !kuberr.IsNotFound(err) {
 					return fmt.Errorf("AlertDashboard still exists or error: %v", err)
 				}
 				return nil
@@ -1410,7 +1409,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 			By("waiting for ConfigMap to be fully deleted")
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, configMapName, &corev1.ConfigMap{})
-				return errors.IsNotFound(err)
+				return kuberr.IsNotFound(err)
 			}, "10s", "1s").Should(BeTrue())
 
 			// Check the status to see if there's a last applied hash that would prevent recreation
@@ -1466,7 +1465,7 @@ var _ = Describe("AlertDashboard Controller Error Cases", func() {
 			Eventually(func() error {
 				alertDashboard := &monitoringv1alpha1.AlertDashboard{}
 				err := k8sClient.Get(ctx, namespacedName, alertDashboard)
-				if err == nil || !errors.IsNotFound(err) {
+				if err == nil || !kuberr.IsNotFound(err) {
 					return fmt.Errorf("AlertDashboard still exists or error: %v", err)
 				}
 				return nil
