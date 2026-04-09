@@ -133,6 +133,92 @@ func TestRuleManager(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, rules, 1)
 		assert.Equal(t, "test-rule", rules[0].Name)
+
+		t.Log("Testing GetPrometheusRules with matchExpressions In operator")
+		// Test with matchExpressions (In operator)
+		dashboardWithInOperator := dashboard.DeepCopy()
+		dashboardWithInOperator.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "team",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"sre", "platform"},
+				},
+			},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithInOperator)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should match rule with team=sre using In operator")
+		assert.Equal(t, "test-rule", rules[0].Name)
+
+		t.Log("Testing GetPrometheusRules with matchExpressions NotIn operator")
+		// Test with matchExpressions (NotIn operator)
+		dashboardWithNotInOperator := dashboard.DeepCopy()
+		dashboardWithNotInOperator.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "team",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"backend", "frontend"},
+				},
+			},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithNotInOperator)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should match rule with team=sre using NotIn operator")
+		assert.Equal(t, "test-rule", rules[0].Name)
+
+		t.Log("Testing GetPrometheusRules with matchExpressions Exists operator")
+		// Test with matchExpressions (Exists operator)
+		dashboardWithExistsOperator := dashboard.DeepCopy()
+		dashboardWithExistsOperator.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "component",
+					Operator: metav1.LabelSelectorOpExists,
+				},
+			},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithExistsOperator)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should match rule that has component label using Exists operator")
+		assert.Equal(t, "test-rule", rules[0].Name)
+
+		t.Log("Testing GetPrometheusRules with matchExpressions DoesNotExist operator")
+		// Test with matchExpressions (DoesNotExist operator)
+		dashboardWithDoesNotExistOperator := dashboard.DeepCopy()
+		dashboardWithDoesNotExistOperator.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "nonexistent",
+					Operator: metav1.LabelSelectorOpDoesNotExist,
+				},
+			},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithDoesNotExistOperator)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should match rule that doesn't have nonexistent label using DoesNotExist operator")
+		assert.Equal(t, "test-rule", rules[0].Name)
+
+		t.Log("Testing GetPrometheusRules with combined matchLabels and matchExpressions")
+		// Test with combined matchLabels and matchExpressions
+		dashboardWithCombined := dashboard.DeepCopy()
+		dashboardWithCombined.Spec.MetadataLabelSelector = &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"app": "test",
+			},
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "team",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"sre"},
+				},
+			},
+		}
+		rules, err = manager.GetPrometheusRules(ctx, dashboardWithCombined)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1, "Should match rule with both matchLabels and matchExpressions")
+		assert.Equal(t, "test-rule", rules[0].Name)
 	})
 
 	t.Run("FindAffectedDashboards", func(t *testing.T) {

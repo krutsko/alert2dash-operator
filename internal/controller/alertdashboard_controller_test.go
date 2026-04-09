@@ -225,6 +225,86 @@ func TestAlertDashboardController(t *testing.T) {
 				// Complex expressions might not be parsed correctly, so we're just checking if something was extracted
 				assert.GreaterOrEqual(t, len(queries), 0)
 			})
+
+			// Test with group-level labels in RuleLabelSelector
+			t.Run("group level label matching", func(t *testing.T) {
+				// Dashboard that selects alerts via group-level labels
+				dashboardWithGroupLabelSelector := &monitoringv1alpha1.AlertDashboard{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dashboard-group-selector",
+						Namespace: "default",
+					},
+					Spec: monitoringv1alpha1.AlertDashboardSpec{
+						RuleLabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"team": "platform", // This label is at the group level, not alert level
+							},
+						},
+					},
+				}
+
+				// Rule with group-level labels
+				rulesWithGroupLabels := []monitoringv1.PrometheusRule{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-rule-group-labels",
+							Namespace: "default",
+						},
+						Spec: monitoringv1.PrometheusRuleSpec{
+							Groups: []monitoringv1.RuleGroup{
+								{
+									Name: "platform-alerts",
+									Labels: map[string]string{
+										"team": "platform", // Group-level label
+									},
+									Rules: []monitoringv1.Rule{
+										{
+											Alert: "PlatformAlert1",
+											Expr:  intstr.FromString("cpu_usage > 90"),
+											Labels: map[string]string{
+												"severity": "critical",
+											},
+										},
+										{
+											Alert: "PlatformAlert2",
+											Expr:  intstr.FromString("memory_usage > 80"),
+											Labels: map[string]string{
+												"severity": "warning",
+											},
+										},
+									},
+								},
+								{
+									Name: "other-alerts",
+									Rules: []monitoringv1.Rule{
+										{
+											Alert: "OtherAlert",
+											Expr:  intstr.FromString("disk_usage > 85"),
+											Labels: map[string]string{
+												"severity": "critical",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				queries := r.extractGrafanaPanelQueries(dashboardWithGroupLabelSelector, rulesWithGroupLabels)
+
+				// Should extract 2 queries (the two alerts from the platform-alerts group)
+				require.Equal(t, 2, len(queries))
+
+				// Verify both queries are from the platform group
+				assert.Equal(t, "PlatformAlert1", queries[0].Name)
+				assert.Equal(t, "PlatformAlert2", queries[1].Name)
+
+				// OtherAlert should not be included since it doesn't have the team=platform label
+				for _, q := range queries {
+					assert.NotEqual(t, "OtherAlert", q.Name)
+				}
+			})
 		})
 	})
 

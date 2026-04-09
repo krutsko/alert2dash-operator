@@ -244,21 +244,35 @@ func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitor
 		return prometheusRules[i].Name < prometheusRules[j].Name
 	})
 
-	for _, rule := range prometheusRules {
-		for _, group := range rule.Spec.Groups {
+	for _, prometheusRule := range prometheusRules {
+		for _, group := range prometheusRule.Spec.Groups {
 			for _, rule := range group.Rules {
 				if rule.Alert != "" {
-					// Skip if rule doesn't match dashboard's RuleLabelSelector
-					if dashboard.Spec.RuleLabelSelector != nil {
-						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
-						if err == nil && !selector.Matches(labels.Set(rule.Labels)) {
-							continue
-						}
-					}
-					// skip rule has exclude label
+					// Skip if rule has exclude label
 					if _, excluded := rule.Labels[constants.LabelExcludeRule]; excluded {
 						continue
 					}
+
+					// Skip if rule doesn't match dashboard's RuleLabelSelector
+					if dashboard.Spec.RuleLabelSelector != nil {
+						// Merge labels from all levels: metadata, group, and alert
+						mergedLabels := make(map[string]string)
+						for k, v := range prometheusRule.Labels {
+							mergedLabels[k] = v
+						}
+						for k, v := range group.Labels {
+							mergedLabels[k] = v
+						}
+						for k, v := range rule.Labels {
+							mergedLabels[k] = v
+						}
+
+						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
+						if err != nil || !selector.Matches(labels.Set(mergedLabels)) {
+							continue
+						}
+					}
+
 					parsedQueries := r.extractQuery(rule.Expr.String())
 					for _, query := range parsedQueries {
 						metric := model.GrafanaPanelQuery{

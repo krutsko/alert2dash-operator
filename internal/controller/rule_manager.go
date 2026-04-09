@@ -23,7 +23,11 @@ func (m *defaultRuleManager) GetPrometheusRules(ctx context.Context, dashboard *
 	ruleList := &monitoringv1.PrometheusRuleList{}
 	var labelSelector labels.Selector
 	if dashboard.Spec.MetadataLabelSelector != nil {
-		labelSelector = labels.SelectorFromSet(dashboard.Spec.MetadataLabelSelector.MatchLabels)
+		var err error
+		labelSelector, err = metav1.LabelSelectorAsSelector(dashboard.Spec.MetadataLabelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid metadataLabelSelector: %w", err)
+		}
 	} else {
 		labelSelector = labels.Everything()
 	}

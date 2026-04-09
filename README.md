@@ -90,6 +90,33 @@ This example:
 - Includes only critical severity alerts
 - Creates ConfigMaps with the prefix "grafana-dashboard"
 
+### Advanced Label Selection
+
+You can also use `matchExpressions` for more advanced label selection with operators like `In`, `NotIn`, `Exists`, and `DoesNotExist`:
+
+```yaml
+apiVersion: monitoring.krutsko.com/v1alpha1
+kind: AlertDashboard
+metadata:
+  name: multi-team-dashboard
+  namespace: monitoring
+spec:
+  # Select PrometheusRules from multiple teams
+  metadataLabelSelector:
+    matchExpressions:
+      - key: team
+        operator: In
+        values: ["sre", "platform"]
+  # Select alerts with severity of either critical or warning
+  ruleLabelSelector:
+    matchExpressions:
+      - key: severity
+        operator: In
+        values: ["critical", "warning"]
+  dashboardConfig:
+    configMapNamePrefix: "grafana-dashboard"
+```
+
 The operator will automatically:
 1. Find all PrometheusRules with matching labels
 2. Extract metrics from alert expressions
