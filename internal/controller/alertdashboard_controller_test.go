@@ -768,7 +768,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying the ConfigMap doesn't contain excluded alert")
+			By("verifying the ConfigMap contains correct alerts")
 			configMap := &corev1.ConfigMap{}
 			Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{
@@ -779,11 +779,14 @@ var _ = Describe("AlertDashboard Controller", func() {
 
 			dashboardJson := configMap.Data[testResourceWithExcludedRule+".json"]
 
-			// Verify panel exclusion
-			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert1"`))
+			// ExcludedAlert1 now matches because it inherits the PrometheusRule metadata label "app: test-app"
+			// which satisfies the RuleLabelSelector: {app: "test-app"}
+			Expect(dashboardJson).To(ContainSubstring(`"title": "ExcludedAlert1"`))
+
+			// ExcludedAlert2 should NOT be included because it has the exclude label
 			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert2"`))
 
-			// Verify included panel
+			// GoodAlert should be included
 			Expect(dashboardJson).To(ContainSubstring(`"title": "GoodAlert"`))
 			Expect(dashboardJson).To(ContainSubstring(`"expr": "vector(1)"`))
 
