@@ -69,13 +69,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.x'
           cache: true
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.64.8
+          version: latest
           args: --timeout=10m --out-format=colored-line-number
 
   test:
@@ -87,7 +87,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.x'
           cache: true
           
       - name: Install dependencies
@@ -121,7 +121,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.x'
           cache: true
 
       - name: Install dependencies
@@ -158,7 +158,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.x'
           cache: true
 
       - name: Build

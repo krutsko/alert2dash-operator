@@ -121,11 +121,11 @@ test-e2e: envtest
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
-	$(GOLANGCI_LINT) run
+	GOMEMLIMIT=$(GOLANGCI_LINT_GOMEMLIMIT) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run -j $(GOLANGCI_LINT_CONCURRENCY)
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	$(GOLANGCI_LINT) run --fix
+	GOMEMLIMIT=$(GOLANGCI_LINT_GOMEMLIMIT) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --fix -j $(GOLANGCI_LINT_CONCURRENCY)
 
 ##@ Build
 
@@ -212,7 +212,15 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 KUSTOMIZE_VERSION ?= v5.4.2
 CONTROLLER_TOOLS_VERSION ?= v0.15.0
 ENVTEST_VERSION ?= release-0.18
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= latest
+# golangci-lint defaults to using every logical CPU (-j), which can spike CPU on large machines.
+# Override per run, e.g. `make lint GOLANGCI_LINT_CONCURRENCY=8`.
+GOLANGCI_LINT_CONCURRENCY ?= 4
+# Soft memory cap for the Go runtime used by golangci-lint; helps avoid runaway memory usage.
+# Disable by setting empty value: `make lint GOLANGCI_LINT_GOMEMLIMIT=`.
+GOLANGCI_LINT_GOMEMLIMIT ?= 1GiB
+# Optional GC aggressiveness for lint process (empty = Go default).
+GOLANGCI_LINT_GOGC ?=
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
