@@ -90,12 +90,73 @@ This example:
 - Includes only critical severity alerts
 - Creates ConfigMaps with the prefix "grafana-dashboard"
 
+### Advanced Label Selection
+
+You can also use `matchExpressions` for more advanced label selection with operators like `In`, `NotIn`, `Exists`, and `DoesNotExist`:
+
+```yaml
+apiVersion: monitoring.krutsko.com/v1alpha1
+kind: AlertDashboard
+metadata:
+  name: multi-team-dashboard
+  namespace: monitoring
+spec:
+  # Select PrometheusRules from multiple teams
+  metadataLabelSelector:
+    matchExpressions:
+      - key: team
+        operator: In
+        values: ["sre", "platform"]
+  # Select alerts with severity of either critical or warning
+  ruleLabelSelector:
+    matchExpressions:
+      - key: severity
+        operator: In
+        values: ["critical", "warning"]
+  dashboardConfig:
+    configMapNamePrefix: "grafana-dashboard"
+```
+
 The operator will automatically:
 1. Find all PrometheusRules with matching labels
 2. Extract metrics from alert expressions
 3. Generate a Grafana dashboard
 4. Create a ConfigMap with the dashboard JSON
 5. The Grafana Operator will then create the actual dashboard in Grafana
+
+### Excluding Specific Alerts
+
+You can exclude specific alert rules from being included in the dashboard by adding the `alert2dash_exclude_rule: "true"` label to individual alert rules or PrometheusRule resources:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: my-alerts
+spec:
+  groups:
+    - name: example
+      rules:
+        - alert: IncludedAlert
+          expr: up == 0
+        - alert: ExcludedAlert
+          expr: down == 0
+          labels:
+            alert2dash_exclude_rule: "true"  # This alert will not appear in dashboards
+```
+
+### Label Matching Across Multiple Levels
+
+The operator matches labels at multiple levels:
+- **PrometheusRule metadata labels** - labels on the PrometheusRule resource
+- **Rule group labels** - labels defined in the rule group
+- **Individual alert labels** - labels on specific alert rules
+
+When checking `ruleLabelSelector`, the operator merges labels from all levels. For example, if a PrometheusRule has a `team: platform` label at the group level, all alerts in that group will match a selector for `team: platform`.
+
+### ConfigMap Name Prefix
+
+The `configMapNamePrefix` field is **required** and must be a valid Kubernetes DNS name.
 
 ## Installation
 

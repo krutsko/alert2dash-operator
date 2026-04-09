@@ -47,11 +47,18 @@ spec:
                 description: DashboardConfig defines the Grafana dashboard configuration
                 properties:
                   configMapNamePrefix:
-                    description: ConfigMapNamePrefix for the generated ConfigMap
+                    description: |-
+                      ConfigMapNamePrefix for the generated ConfigMap
+                      Must be a valid Kubernetes DNS-1123 subdomain name (lowercase alphanumeric and hyphens)
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
                   folder:
                     description: Folder in Grafana where dashboard will be stored
                     type: string
+                required:
+                - configMapNamePrefix
                 type: object
               metadataLabelSelector:
                 description: |-

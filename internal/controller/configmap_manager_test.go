@@ -321,4 +321,80 @@ func TestConfigMapManager(t *testing.T) {
 		assert.NotNil(t, updatedConfigMap.Data)
 		assert.Equal(t, string(content), updatedConfigMap.Data["test-dashboard.json"])
 	})
+
+	t.Run("should delete ConfigMap when content is empty", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		// Create a ConfigMap with content
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "grafana-dashboard-test-dashboard",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.LabelGrafanaDashboard: "1",
+					constants.LabelDashboardName:    "test-dashboard",
+				},
+			},
+			Data: map[string]string{
+				"test-dashboard.json": `{"test": "data"}`,
+			},
+		}
+		require.NoError(t, client.Create(context.Background(), configMap))
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dashboard",
+				Namespace: "default",
+			},
+			Spec: monitoringv1alpha1.AlertDashboardSpec{
+				DashboardConfig: monitoringv1alpha1.DashboardConfig{
+					ConfigMapNamePrefix: "grafana-dashboard",
+				},
+			},
+		}
+
+		// Call with empty content
+		err := manager.CreateOrUpdateConfigMap(context.Background(), dashboard, []byte{})
+		require.NoError(t, err)
+
+		// Verify ConfigMap was deleted
+		deletedConfigMap := &corev1.ConfigMap{}
+		err = client.Get(context.Background(), types.NamespacedName{
+			Name:      "grafana-dashboard-test-dashboard",
+			Namespace: "default",
+		}, deletedConfigMap)
+		require.Error(t, err)
+	})
+
+	t.Run("should not error when deleting non-existent ConfigMap", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		manager := &defaultConfigMapManager{
+			client: client,
+			scheme: scheme,
+			log:    testLogger,
+		}
+
+		dashboard := &monitoringv1alpha1.AlertDashboard{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dashboard",
+				Namespace: "default",
+			},
+			Spec: monitoringv1alpha1.AlertDashboardSpec{
+				DashboardConfig: monitoringv1alpha1.DashboardConfig{
+					ConfigMapNamePrefix: "grafana-dashboard",
+				},
+			},
+		}
+
+		// Call with empty content on non-existent ConfigMap
+		err := manager.CreateOrUpdateConfigMap(context.Background(), dashboard, []byte{})
+		require.NoError(t, err)
+	})
 }

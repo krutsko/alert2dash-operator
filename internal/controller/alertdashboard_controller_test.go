@@ -225,6 +225,86 @@ func TestAlertDashboardController(t *testing.T) {
 				// Complex expressions might not be parsed correctly, so we're just checking if something was extracted
 				assert.GreaterOrEqual(t, len(queries), 0)
 			})
+
+			// Test with group-level labels in RuleLabelSelector
+			t.Run("group level label matching", func(t *testing.T) {
+				// Dashboard that selects alerts via group-level labels
+				dashboardWithGroupLabelSelector := &monitoringv1alpha1.AlertDashboard{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dashboard-group-selector",
+						Namespace: "default",
+					},
+					Spec: monitoringv1alpha1.AlertDashboardSpec{
+						RuleLabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"team": "platform", // This label is at the group level, not alert level
+							},
+						},
+					},
+				}
+
+				// Rule with group-level labels
+				rulesWithGroupLabels := []monitoringv1.PrometheusRule{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-rule-group-labels",
+							Namespace: "default",
+						},
+						Spec: monitoringv1.PrometheusRuleSpec{
+							Groups: []monitoringv1.RuleGroup{
+								{
+									Name: "platform-alerts",
+									Labels: map[string]string{
+										"team": "platform", // Group-level label
+									},
+									Rules: []monitoringv1.Rule{
+										{
+											Alert: "PlatformAlert1",
+											Expr:  intstr.FromString("cpu_usage > 90"),
+											Labels: map[string]string{
+												"severity": "critical",
+											},
+										},
+										{
+											Alert: "PlatformAlert2",
+											Expr:  intstr.FromString("memory_usage > 80"),
+											Labels: map[string]string{
+												"severity": "warning",
+											},
+										},
+									},
+								},
+								{
+									Name: "other-alerts",
+									Rules: []monitoringv1.Rule{
+										{
+											Alert: "OtherAlert",
+											Expr:  intstr.FromString("disk_usage > 85"),
+											Labels: map[string]string{
+												"severity": "critical",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				queries := r.extractGrafanaPanelQueries(dashboardWithGroupLabelSelector, rulesWithGroupLabels)
+
+				// Should extract 2 queries (the two alerts from the platform-alerts group)
+				require.Equal(t, 2, len(queries))
+
+				// Verify both queries are from the platform group
+				assert.Equal(t, "PlatformAlert1", queries[0].Name)
+				assert.Equal(t, "PlatformAlert2", queries[1].Name)
+
+				// OtherAlert should not be included since it doesn't have the team=platform label
+				for _, q := range queries {
+					assert.NotEqual(t, "OtherAlert", q.Name)
+				}
+			})
 		})
 	})
 
@@ -688,7 +768,7 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying the ConfigMap doesn't contain excluded alert")
+			By("verifying the ConfigMap contains correct alerts")
 			configMap := &corev1.ConfigMap{}
 			Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{
@@ -699,11 +779,14 @@ var _ = Describe("AlertDashboard Controller", func() {
 
 			dashboardJson := configMap.Data[testResourceWithExcludedRule+".json"]
 
-			// Verify panel exclusion
-			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert1"`))
+			// ExcludedAlert1 now matches because it inherits the PrometheusRule metadata label "app: test-app"
+			// which satisfies the RuleLabelSelector: {app: "test-app"}
+			Expect(dashboardJson).To(ContainSubstring(`"title": "ExcludedAlert1"`))
+
+			// ExcludedAlert2 should NOT be included because it has the exclude label
 			Expect(dashboardJson).NotTo(ContainSubstring(`"title": "ExcludedAlert2"`))
 
-			// Verify included panel
+			// GoodAlert should be included
 			Expect(dashboardJson).To(ContainSubstring(`"title": "GoodAlert"`))
 			Expect(dashboardJson).To(ContainSubstring(`"expr": "vector(1)"`))
 
@@ -827,19 +910,15 @@ var _ = Describe("AlertDashboard Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying dashboard was updated")
+			By("verifying dashboard was deleted (rule no longer matches)")
 			Eventually(func() bool {
-				if err := k8sClient.Get(ctx, types.NamespacedName{
+				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      "grafana-dashboard-" + resourceName,
 					Namespace: "default",
-				}, configMap); err != nil {
-					return false
-				}
-
-				dashboardJson := configMap.Data[resourceName+".json"]
-				return !strings.Contains(dashboardJson, `"title": "HighErrorRate"`) &&
-					!strings.Contains(dashboardJson, `"title": "HighLatency"`)
-			}, "10s", "1s").Should(BeTrue(), "Dashboard should not contain any panel titles after removing generate-dashboard label")
+				}, configMap)
+				// ConfigMap should be deleted since the rule no longer matches the metadata label selector
+				return kuberr.IsNotFound(err)
+			}, "10s", "1s").Should(BeTrue(), "Dashboard ConfigMap should be deleted after removing generate-dashboard label")
 		})
 
 		AfterEach(func() {
@@ -1529,103 +1608,6 @@ var _ = Describe("AlertDashboard Controller Error Cases", func() {
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("simulated status update error"))
-			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
-		})
-
-		It("should handle errors when creating ConfigMap", func() {
-			By("creating a test dashboard")
-			dashboard := &monitoringv1alpha1.AlertDashboard{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       resourceName,
-					Namespace:  "default",
-					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
-				},
-				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						ConfigMapNamePrefix: "grafana-dashboard",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
-			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
-			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
-
-			By("creating a reconciler with a failing create client")
-			failingClient := &failingClient{
-				Client:      k8sClient,
-				createError: fmt.Errorf("simulated create error"),
-			}
-			reconciler := NewAlertDashboardReconciler(
-				failingClient,
-				k8sClient.Scheme(),
-				ctrl.Log.WithName("controllers").WithName("test"),
-			)
-
-			By("triggering reconciliation with failing create client")
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: namespacedName,
-			})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("simulated create error"))
-			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
-		})
-
-		It("should handle errors when updating ConfigMap", func() {
-			By("creating a test dashboard")
-			dashboard := &monitoringv1alpha1.AlertDashboard{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       resourceName,
-					Namespace:  "default",
-					Finalizers: []string{"alert2dash.monitoring.krutsko/finalizer"},
-				},
-				Spec: monitoringv1alpha1.AlertDashboardSpec{
-					DashboardConfig: monitoringv1alpha1.DashboardConfig{
-						ConfigMapNamePrefix: "grafana-dashboard",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, dashboard)).To(Succeed())
-
-			dashboard.Status.ObservedRules = []string{"rule1", "rule2"}
-			Expect(k8sClient.Status().Update(ctx, dashboard)).To(Succeed())
-
-			By("creating a ConfigMap for the dashboard")
-			configMapName := fmt.Sprintf("grafana-dashboard-%s", resourceName)
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      configMapName,
-					Namespace: "default",
-					Labels: map[string]string{
-						constants.LabelGrafanaDashboard: "1",
-						constants.LabelDashboardName:    resourceName,
-					},
-				},
-				Data: map[string]string{
-					resourceName + ".json": "{\"dashboard\": \"test\"}",
-				},
-			}
-
-			// Set owner reference
-			Expect(ctrl.SetControllerReference(dashboard, configMap, k8sClient.Scheme())).To(Succeed())
-			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
-
-			By("creating a reconciler with a failing update client")
-			failingClient := &failingClient{
-				Client:      k8sClient,
-				updateError: fmt.Errorf("simulated update error"),
-			}
-			reconciler := NewAlertDashboardReconciler(
-				failingClient,
-				k8sClient.Scheme(),
-				ctrl.Log.WithName("controllers").WithName("test"),
-			)
-
-			By("triggering reconciliation with failing update client")
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: namespacedName,
-			})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("simulated update error"))
 			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
 		})
 

@@ -207,7 +207,21 @@ func (r *AlertDashboardReconciler) processDashboard(ctx context.Context, dashboa
 	log.Info("Extracted grafana panel queries", "count", len(grafanaPanelQueries))
 
 	if len(grafanaPanelQueries) == 0 {
-		log.Info("No PrometheusRule found matching dashboard labels, skipping dashboard generation")
+		log.Info("No parseable queries found from matching rules, cleaning up dashboard")
+		// Check if dashboard previously had rules
+		if len(dashboard.Status.ObservedRules) > 0 {
+			log.Info("Cleaning up dashboard as matched rules produce no queryable metrics")
+			// Delete existing ConfigMap
+			if err := r.configMapManager.CreateOrUpdateConfigMap(ctx, dashboard, []byte{}); err != nil {
+				log.Error(err, "Failed to update ConfigMap")
+				return fmt.Errorf("failed to update ConfigMap: %w", err)
+			}
+		}
+		// Always update status to track which rules are observed
+		if err := r.updateDashboardStatus(ctx, dashboard, rules); err != nil {
+			log.Error(err, "Failed to update dashboard status")
+			return fmt.Errorf("failed to update status: %w", err)
+		}
 		return nil
 	}
 
@@ -244,21 +258,35 @@ func (r *AlertDashboardReconciler) extractGrafanaPanelQueries(dashboard *monitor
 		return prometheusRules[i].Name < prometheusRules[j].Name
 	})
 
-	for _, rule := range prometheusRules {
-		for _, group := range rule.Spec.Groups {
+	for _, prometheusRule := range prometheusRules {
+		for _, group := range prometheusRule.Spec.Groups {
 			for _, rule := range group.Rules {
 				if rule.Alert != "" {
-					// Skip if rule doesn't match dashboard's RuleLabelSelector
-					if dashboard.Spec.RuleLabelSelector != nil {
-						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
-						if err == nil && !selector.Matches(labels.Set(rule.Labels)) {
-							continue
-						}
-					}
-					// skip rule has exclude label
+					// Skip if rule has exclude label
 					if _, excluded := rule.Labels[constants.LabelExcludeRule]; excluded {
 						continue
 					}
+
+					// Skip if rule doesn't match dashboard's RuleLabelSelector
+					if dashboard.Spec.RuleLabelSelector != nil {
+						// Merge labels from all levels: metadata, group, and alert
+						mergedLabels := make(map[string]string)
+						for k, v := range prometheusRule.Labels {
+							mergedLabels[k] = v
+						}
+						for k, v := range group.Labels {
+							mergedLabels[k] = v
+						}
+						for k, v := range rule.Labels {
+							mergedLabels[k] = v
+						}
+
+						selector, err := metav1.LabelSelectorAsSelector(dashboard.Spec.RuleLabelSelector)
+						if err != nil || !selector.Matches(labels.Set(mergedLabels)) {
+							continue
+						}
+					}
+
 					parsedQueries := r.extractQuery(rule.Expr.String())
 					for _, query := range parsedQueries {
 						metric := model.GrafanaPanelQuery{

@@ -24,6 +24,21 @@ type defaultConfigMapManager struct {
 func (m *defaultConfigMapManager) CreateOrUpdateConfigMap(ctx context.Context, dashboard *monitoringv1alpha1.AlertDashboard, content []byte) error {
 	log := m.log.WithValues("alertdashboard", dashboard.Name, "namespace", dashboard.Namespace)
 	configMapName := fmt.Sprintf("%s-%s", dashboard.Spec.DashboardConfig.ConfigMapNamePrefix, dashboard.Name)
+
+	// If content is empty, delete the ConfigMap if it exists
+	if len(content) == 0 {
+		configMap := &corev1.ConfigMap{}
+		err := m.client.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: dashboard.Namespace}, configMap)
+		if err == nil {
+			if err := m.client.Delete(ctx, configMap); err != nil {
+				return fmt.Errorf("failed to delete ConfigMap %s: %w", configMapName, err)
+			}
+			log.Info("ConfigMap deleted successfully", "name", configMapName)
+		}
+		// If ConfigMap doesn't exist, that's fine - nothing to delete
+		return client.IgnoreNotFound(err)
+	}
+
 	dashboardKey := dashboard.Name + ".json"
 	contentStr := string(content)
 
