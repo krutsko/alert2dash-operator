@@ -43,7 +43,11 @@ type DashboardConfig struct {
 	Folder string `json:"folder,omitempty"`
 
 	// ConfigMapNamePrefix for the generated ConfigMap
-	ConfigMapNamePrefix string `json:"configMapNamePrefix,omitempty"`
+	// Must be a valid Kubernetes DNS-1123 subdomain name (lowercase alphanumeric and hyphens)
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	ConfigMapNamePrefix string `json:"configMapNamePrefix"`
 }
 
 // AlertDashboardStatus defines the observed state of AlertDashboard
