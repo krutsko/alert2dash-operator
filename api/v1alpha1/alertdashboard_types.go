@@ -85,7 +85,3 @@ type AlertDashboardList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AlertDashboard `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&AlertDashboard{}, &AlertDashboardList{})
-}

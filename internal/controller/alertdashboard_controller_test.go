@@ -1241,7 +1241,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result1.Requeue).To(BeFalse())
+			Expect(result1.RequeueAfter).To(BeZero())
 
 			// Get the dashboard after first reconciliation
 			dashboardAfterFirst := &monitoringv1alpha1.AlertDashboard{}
@@ -1269,7 +1269,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 				Namespace: "default",
 			}, dashboardAfterSecond)).To(Succeed())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result2.Requeue).To(BeFalse())
+			Expect(result2.RequeueAfter).To(BeZero())
 			secondHash := dashboardAfterSecond.Status.RulesHash
 			Expect(secondHash).NotTo(BeEmpty(), "Hash is not empty")
 
@@ -1288,7 +1288,7 @@ var _ = Describe("AlertDashboard Controller Rule Updates", func() {
 				Namespace: "default",
 			}, dashboardAfterThird)).To(Succeed())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result3.Requeue).To(BeFalse())
+			Expect(result3.RequeueAfter).To(BeZero())
 			thirdHash := dashboardAfterThird.Status.RulesHash
 			Expect(thirdHash).NotTo(BeEmpty(), "Hash is not empty")
 
@@ -1569,7 +1569,7 @@ var _ = Describe("AlertDashboard Controller Error Cases", func() {
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("simulated get error"))
-			Expect(result.Requeue).To(BeFalse())
+			Expect(result.RequeueAfter).To(BeZero())
 		})
 
 		It("should handle errors when updating AlertDashboard status", func() {
