@@ -364,7 +364,7 @@ func computeRulesHash(rules []monitoringv1.PrometheusRule) string {
 func (r *AlertDashboardReconciler) extractQuery(expr string) []model.ParsedQueryResult {
 
 	// Parse the PromQL expression
-	parsedExpr, err := parser.ParseExpr(expr)
+	parsedExpr, err := parser.NewParser(parser.Options{}).ParseExpr(expr)
 	if err != nil {
 		r.Log.Error(err, "Failed to parse PromQL expression", "expr", expr)
 		return []model.ParsedQueryResult{}

@@ -235,7 +235,7 @@ func runQueryTest(t *testing.T, r *AlertDashboardReconciler, tt struct {
 	for i, result := range results {
 
 		// query
-		expectedExpr, err := parser.ParseExpr(tt.expected[i].Query)
+		expectedExpr, err := parser.NewParser(parser.Options{}).ParseExpr(tt.expected[i].Query)
 		require.NoError(t, err, "Failed to parse expected expression")
 		assert.Equal(t, expectedExpr.String(), result.Query,
 			"Extracted query does not match expected"+tt.name)
